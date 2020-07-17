@@ -12,13 +12,24 @@
 //   https://github.com/yu55/auriol_reader
 //   http://www.tfd.hu/tfdhu/files/wsprotocol/auriol_protocol_v20.pdf
 //   https://glsk.net/2018/02/battery-powered-weather-station-with-esp8266-and-bme280/
-//
 //   https://forum.iobroker.net/topic/23763/windanzeige-mit-ventus-w132-wemos-d1-mini
 //   https://github.com/Zwer2k/WeatherStationDataRx
+//   https://github.com/3KUdelta/Solar_WiFi_Weather_Station
 //
+//   Missing values calculating with the August-Roche-Magnus approximation:
+//   http://bmcnoldy.rsmas.miami.edu/Humidity.html
+//   RH: = 100*(EXP((17.625*TD)/(243.04+TD))/EXP((17.625*T)/(243.04+T)))
+//   TD: = 243.04*(LN(RH/100)+((17.625*T)/(243.04+T)))/(17.625-LN(RH/100)-((17.625*T)/(243.04+T)))
+//    T: = 243.04*(((17.625*TD)/(243.04+TD))-LN(RH/100))/(17.625+LN(RH/100)-((17.625*TD)/(243.04+TD)))
+//   Example:
+//   double a = 17.271;
+//   double b = 237.7;
+//   adjusted_temp = measured_temp + TEMP_CORR
+//   adjusted_humi = 100 * (exp((a * DewpointTemperature) / (b + DewpointTemperature)) / exp((a * adjusted_temp) / (b + adjusted_temp)));
+//
+//   AMS AS3935:
 //   https://bitbucket.org/christandlg/as3935mi/src/master/
 //   connect the AS3935 to the Arduino like this:
-//
 //   PlayingwithFusion
 //   AS3935   --------- Wemos D1 mini
 //   VCC      --------- 5V/3.3V
