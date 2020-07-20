@@ -29,23 +29,23 @@
 //
 //   AMS AS3935:
 //   https://bitbucket.org/christandlg/as3935mi/src/master/
+//   Kaminari: https://github.com/shred/kaminari
 //   connect the AS3935 to the Arduino like this:
 //   PlayingwithFusion
-//   AS3935   --------- Wemos D1 mini
-//   VCC      --------- 5V/3.3V
-//   GND      --------- GND
-//   CS       --------- 15 GPIO15 D8
-//   SI       --------- GND (set to SPI, VCC set to I2C)
-//   IRQ      --------- 5 GPIO5 D1 oder 2 GPIO2 D4
-//   SCK      --------- 14 GPIO14 D5
-//   MISO     --------- 12 GPIO12 D6
-//   MOSI     --------- 13 GPIO13 D7
+//   AS3935   --------- Wemos D1 mini                        Kaminari
+//   VCC      --------- 5V/3.3V                              5V/3.3V
+//   GND      --------- GND                                  GND
+//   CS       --------- 15 GPIO15 D8                         15 GPIO15 D8       
+//   SI       --------- GND (set to SPI, VCC set to I2C)     GND
+//   IRQ      --------- 5 GPIO5 D1 oder 2 GPIO2 D4           5 GPIO5 D1
+//   SCK      --------- 14 GPIO14 D5                         14 GPIO14 D5
+//   MISO     --------- 12 GPIO12 D6                         12 GPIO12 D6
+//   MOSI     --------- 13 GPIO13 D7                         13 GPIO13 D7
 //   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //   CJMCU-3935
 //   EN_VREG  --------- 5V
 //   other pins can be left unconnected.
 //
-
 #define WITH_DEBUG_TO_SERIAL 0 // 0 to disable debug output to serial
 #define WITH_DEBUG_TO_BROKER 1 // 0 to disable debug output to broker
 #define WITH_ERROR_TO_BROKER 1 // 0 to disable error output to broker
@@ -402,7 +402,7 @@ unsigned int ventusStatus = 0;
   #include <AS3935SPI.h>
 
   #define AS3935_SENSOR_ID "AS3935"
-  #define AS3935_PIN_IRQ 2
+  #define AS3935_PIN_IRQ 5
   #define AS3935_PIN_CS 15
 
   //create an AS3935 object using the SPI interface, chip select pin 15 and IRQ pin number 2
@@ -6312,18 +6312,20 @@ boolean loopWeewxUploadResults()
     #endif
 
     #if (STATION_NUM_ID == 3) //Blitz
-      WeeWX_URL += "&blitz_temperature=";
-      WeeWX_URL += round(bme280Data.temperature * 100) / 100;
-      WeeWX_URL += "&blitz_dewpoint=";
-      WeeWX_URL += round(bme280Data.dewpoint * 100) / 100;
-      WeeWX_URL += "&blitz_humidity=";
-      WeeWX_URL += bme280Data.humidity;
-      WeeWX_URL += "&blitz_barometer=";
-      WeeWX_URL += round(bme280Data.barometer * 100) / 100;
-      WeeWX_URL += "&blitz_pressure=";
-      WeeWX_URL += round(bme280Data.pressure * 100) /100;
-      WeeWX_URL += "&blitz_heatindex=";
-      WeeWX_URL += round(bme280Data.heatindex * 100) / 100;
+      #if (WITH_BME280 > 0)
+        WeeWX_URL += "&blitz_temperature=";
+        WeeWX_URL += round(bme280Data.temperature * 100) / 100;
+        WeeWX_URL += "&blitz_dewpoint=";
+        WeeWX_URL += round(bme280Data.dewpoint * 100) / 100;
+        WeeWX_URL += "&blitz_humidity=";
+        WeeWX_URL += bme280Data.humidity;
+        WeeWX_URL += "&blitz_barometer=";
+        WeeWX_URL += round(bme280Data.barometer * 100) / 100;
+        WeeWX_URL += "&blitz_pressure=";
+        WeeWX_URL += round(bme280Data.pressure * 100) /100;
+        WeeWX_URL += "&blitz_heatindex=";
+        WeeWX_URL += round(bme280Data.heatindex * 100) / 100;
+      #endif
       WeeWX_URL += "&blitz_stationVoltage=";
       WeeWX_URL += round(voltageData.stationVoltage * 100) / 100;
       WeeWX_URL += "&softwaretype=BlitzWeatherStation";
@@ -6681,7 +6683,7 @@ void stationDeepSleep(unsigned long startTime, boolean sensorDataAvaiable = true
     debug("sleep ");
     debug(realSleep);
     debugln(" seconds...");
-    delay(realSleep * 1000)
+    delay(realSleep * 1000);
     ESP.restart();
   #endif  
 }
