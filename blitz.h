@@ -6,7 +6,7 @@
 // on/off 
 #define WITH_W132 0           // 0 to disable Ventus W132 sensor readout.
 #define WITH_W174 0           // 0 to disable Ventus W174 sensor readout.
-#define WITH_BME280 1         // 0 to disable BME280 sensor readout.
+#define WITH_BME280 0         // 0 to disable BME280 sensor readout.
 #define WITH_BME680 0         // 0 to disable BME260 sensor readout.
 #define WITH_BH1750 0         // 0 to disable BH1750 sensor readout.
 #define WITH_BH1750B 0        // 0 to disable BH1750 sensor readout.
@@ -16,15 +16,16 @@
 #define WITH_VEML6075 0       // 0 to disable VEML6075 sensor readout.
 #define WITH_MHRD 0           // 0 to disable MH-RD sensor readout.
 #define WITH_DS18B20 0        // 0 to disable DS18B20 sensor readout.
-#define WITH_AS3935 1         // 0 to disable AS3935 sensor readout.
+#define WITH_AS3935MI 1       // 0 to disable AS3935MI sensor readout.
+#define WITH_AS3935KA 1       // 0 to disable AS3935KA sensor readout.
 #define WITH_TSL2591 0        // 0 to disable TSL2591 sensor readout
 #define WITH_VOLTAGE 1        // 0 to disable Voltage readout.
 #define WITH_FLASH 1          // 0 to disable Flash.
 #define WITH_SD 0             // 0 to disable SD Datalogger.
-#define WITH_RTC 1            // 0 to disable RTC.
+#define WITH_RTC 0            // 0 to disable RTC.
 #define WITH_ZAMBRETTI 0      // 0 to disable Zambretti Forecast
 #define WITH_WEEWX_UPLOAD 1   // 0 to disable WeeWX Upload.
-#define WITH_DEEPSLEEP 1      // 0 to disable Deepsleep and enable delay function
+#define WITH_DEEPSLEEP 0      // 0 to disable Deepsleep and enable delay function
 #define WITH_TIMER 1          // 0 to disable Timer Routines
 #define WITH_BROKER 1         // 0 to disable publish to broker
 
@@ -99,5 +100,5 @@ IPAddress subnet(255, 255, 255, 0);
 #define SLEEP_NIGHT_HOUR 22
 
 // Sleep time
-#define SLEEP_DAY_SECONDS 90
-#define SLEEP_NIGHT_SECONDS 90
+#define SLEEP_DAY_SECONDS 300 // 5 Minutes
+#define SLEEP_NIGHT_SECONDS 300 // 5 Minutes

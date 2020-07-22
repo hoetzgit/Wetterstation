@@ -16,7 +16,8 @@
 #define WITH_VEML6075 0       // 0 to disable VEML6075 sensor readout.
 #define WITH_MHRD 0           // 0 to disable MH-RD sensor readout.
 #define WITH_DS18B20 0        // 0 to disable DS18B20 sensor readout.
-#define WITH_AS3935 0         // 0 to disable AS3935 sensor readout.
+#define WITH_AS3935MI 1       // 0 to disable AS3935MI sensor readout.
+#define WITH_AS3935KA 1       // 0 to disable AS3935KA sensor readout.
 #define WITH_TSL2591 0        // 0 to disable TSL2591 sensor readout
 #define WITH_VOLTAGE 1        // 0 to disable Voltage readout.
 #define WITH_FLASH 1          // 0 to disable Flash.

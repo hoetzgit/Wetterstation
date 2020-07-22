@@ -397,21 +397,21 @@ unsigned int ventusStatus = 0;
 //***************************************************************
 // Sensor AS3935
 //***************************************************************
-#if (WITH_AS3935 > 0)
+#if (WITH_AS3935MI > 0)
   #include <SPI.h>
   #include <AS3935SPI.h>
 
-  #define AS3935_SENSOR_ID "AS3935"
-  #define AS3935_PIN_IRQ 5
-  #define AS3935_PIN_CS 15
+  #define AS3935MI_SENSOR_ID "AS3935MI"
+  #define AS3935MI_PIN_IRQ 5
+  #define AS3935MI_PIN_CS 15
 
   //create an AS3935 object using the SPI interface, chip select pin 15 and IRQ pin number 2
-  AS3935SPI as3935(AS3935_PIN_CS, AS3935_PIN_IRQ);
+  AS3935SPI as3935mi(AS3935MI_PIN_CS, AS3935MI_PIN_IRQ);
 
   //this value will be set to true by the AS3935 interrupt service routine.
-  volatile bool as3935Interrupt = false;
+  volatile bool as3935miInterrupt = false;
   
-  struct as3935DataType
+  struct as3935miDataType
   {
     byte received;
     byte published;
@@ -429,10 +429,10 @@ unsigned int ventusStatus = 0;
     float distance_sum;
     float energy;
     float energy_sum;
-  } as3935Data;
+  } as3935miData;
 
   // cache AS3935 interrupt service routine
-  ICACHE_RAM_ATTR void as3935InterruptHandler();
+  ICACHE_RAM_ATTR void as3935miInterruptHandler();
 #endif
 
 //***************************************************************
@@ -5762,67 +5762,67 @@ void timerStop()
 }
 
 //***************************************************************
-// Initialize AS3935
+// Initialize AS3935MI
 //***************************************************************
-void as3935Setup()
+void as3935miSetup()
 {
-  #if (WITH_AS3935 > 0)
-    pinMode(AS3935_PIN_IRQ, INPUT);
+  #if (WITH_AS3935MI > 0)
+    pinMode(AS3935MI_PIN_IRQ, INPUT);
     SPI.begin();
 
     //begin() checks the Interface passed to the constructor and resets the AS3935 to 
     //default values.
-    if (!as3935.begin())
+    if (!as3935mi.begin())
     {
-      debugln("AS3935 begin() failed. check your AS3935 Interface setting.");
-      errorPublish(String(AS3935_SENSOR_ID), "AS3935 begin() failed. check your AS3935 Interface setting.", true);
+      debugln("AS3935MI begin() failed. check your AS3935MI Interface setting.");
+      errorPublish(String(AS3935MI_SENSOR_ID), "AS3935MI begin() failed. check your AS3935MI Interface setting.", true);
       while (1);
     }
 
     //check SPI connection.
-    if (!as3935.checkConnection())
+    if (!as3935mi.checkConnection())
     {
-      debugln("AS3935 checkConnection() failed. check your SPI connection and SPI chip select pin. ");
-      errorPublish(String(AS3935_SENSOR_ID), "AS3935 checkConnection() failed. check your SPI connection and SPI chip select pin. ", true);
+      debugln("AS3935MI checkConnection() failed. check your SPI connection and SPI chip select pin. ");
+      errorPublish(String(AS3935MI_SENSOR_ID), "AS3935MI checkConnection() failed. check your SPI connection and SPI chip select pin. ", true);
       while (1);
     }
     else
     {
-      debugln("AS3935 SPI connection check passed. ");
-      debugPublish(String(AS3935_SENSOR_ID), "AS3935 SPI connection check passed. ", false);
+      debugln("AS3935MI SPI connection check passed. ");
+      debugPublish(String(AS3935MI_SENSOR_ID), "AS3935MI SPI connection check passed. ", false);
     }
 
     //check the IRQ pin connection.
-    if (!as3935.checkIRQ())
+    if (!as3935mi.checkIRQ())
     {
-      debugln("AS3935 checkIRQ() failed. check if the correct IRQ pin was passed to the AS3935SPI constructor. ");
-      errorPublish(String(AS3935_SENSOR_ID), "AS3935 checkIRQ() failed. check if the correct IRQ pin was passed to the AS3935SPI constructor. ", true);
+      debugln("AS3935MI checkIRQ() failed. check if the correct IRQ pin was passed to the AS3935SPI constructor. ");
+      errorPublish(String(AS3935MI_SENSOR_ID), "AS3935MI checkIRQ() failed. check if the correct IRQ pin was passed to the AS3935SPI constructor. ", true);
       while (1);
     }
     else
     {
-      debugln("AS3935 IRQ pin connection check passed. ");
-      debugPublish(String(AS3935_SENSOR_ID), "AS3935 IRQ pin connection check passed. ", false);
+      debugln("AS3935MI IRQ pin connection check passed. ");
+      debugPublish(String(AS3935MI_SENSOR_ID), "AS3935MI IRQ pin connection check passed. ", false);
     }
 
     //calibrate the resonance frequency. failing the resonance frequency could indicate an issue 
     //of the sensor. resonance frequency calibration will take about 1.7 seconds to complete.
     int32_t frequency = 0;
-    if (!as3935.calibrateResonanceFrequency(frequency))
+    if (!as3935mi.calibrateResonanceFrequency(frequency))
     {
-      debug("AS3935 Resonance Frequency Calibration failed: is ");
+      debug("AS3935MI Resonance Frequency Calibration failed: is ");
       debug(frequency);
       debugln(" Hz, should be 482500 Hz - 517500 Hz");
-      errorPublish(String(AS3935_SENSOR_ID), "AS3935 Resonance Frequency Calibration failed: is " + String(frequency) + " Hz, should be 482500 Hz - 517500 Hz", true);
+      errorPublish(String(AS3935MI_SENSOR_ID), "AS3935MI Resonance Frequency Calibration failed: is " + String(frequency) + " Hz, should be 482500 Hz - 517500 Hz", true);
       //while (1);
     }
     else
     {
-      debugln("AS3935 Resonance Frequency Calibration passed. ");
-      debugPublish(String(AS3935_SENSOR_ID), "AS3935 Resonance Frequency Calibration passed. ", false);
+      debugln("AS3935MI Resonance Frequency Calibration passed. ");
+      debugPublish(String(AS3935MI_SENSOR_ID), "AS3935MI Resonance Frequency Calibration passed. ", false);
     }
 
-    debug("AS3935 Resonance Frequency is ");
+    debug("AS3935MI Resonance Frequency is ");
     debug(frequency);
     debugln("Hz");
 
@@ -5834,101 +5834,101 @@ void as3935Setup()
     debug(proz);
     debugln("%)");
 
-    debugPublish(String(AS3935_SENSOR_ID), "AS3935 Resonance Frequency is " + String(frequency) + "Hz (Diff: " + String(diff) + "Hz, " + String(proz) + "%)", false);
+    debugPublish(String(AS3935MI_SENSOR_ID), "AS3935MI Resonance Frequency is " + String(frequency) + "Hz (Diff: " + String(diff) + "Hz, " + String(proz) + "%)", false);
 
     //calibrate the RCO.
-    if (!as3935.calibrateRCO())
+    if (!as3935mi.calibrateRCO())
     {
-      debugln("AS3935 RCP Calibration failed. ");
-      errorPublish(String(AS3935_SENSOR_ID), "AS3935 RCP Calibration failed.", true);
+      debugln("AS3935MI RCP Calibration failed. ");
+      errorPublish(String(AS3935MI_SENSOR_ID), "AS3935MI RCP Calibration failed.", true);
       while (1);
     }
     else
     {
-      debugln("AS3935 RCO Calibration passed. ");
-      debugPublish(String(AS3935_SENSOR_ID), "AS3935 RCO Calibration passed.", false);
+      debugln("AS3935MI RCO Calibration passed. ");
+      debugPublish(String(AS3935MI_SENSOR_ID), "AS3935MI RCO Calibration passed.", false);
     }
 
     //set the analog front end to outdoors/indors
-    //as3935.writeAFE(AS3935MI::AS3935_INDOORS);
-    as3935.writeAFE(AS3935MI::AS3935_OUTDOORS);
+    //as3935mi.writeAFE(AS3935MI::AS3935_INDOORS);
+    as3935mi.writeAFE(AS3935MI::AS3935_OUTDOORS);
   
     //set default value for noise floor threshold
-    as3935.writeNoiseFloorThreshold(AS3935MI::AS3935_NFL_2);
+    as3935mi.writeNoiseFloorThreshold(AS3935MI::AS3935_NFL_2);
   
     //set the default Watchdog Threshold
-    as3935.writeWatchdogThreshold(AS3935MI::AS3935_WDTH_2);
+    as3935mi.writeWatchdogThreshold(AS3935MI::AS3935_WDTH_2);
   
     //set the default Spike Rejection 
-    as3935.writeSpikeRejection(AS3935MI::AS3935_SREJ_2);
+    as3935mi.writeSpikeRejection(AS3935MI::AS3935_SREJ_2);
   
     //write default value for minimum lightnings (1)
-    as3935.writeMinLightnings(AS3935MI::AS3935_MNL_1);
+    as3935mi.writeMinLightnings(AS3935MI::AS3935_MNL_1);
   
     //do not mask disturbers
-    as3935.writeMaskDisturbers(false);
+    as3935mi.writeMaskDisturbers(false);
   
-    debugln("AS3935 Initialization complete.");
-    debugPublish(String(AS3935_SENSOR_ID), "AS3935 Initialization complete.", false);
+    debugln("AS3935MI Initialization complete.");
+    debugPublish(String(AS3935MI_SENSOR_ID), "AS3935MI Initialization complete.", false);
   #endif
 }
 
 //***************************************************************
-// Start AS3935 Interrupt Service 
+// Start AS3935MI Interrupt Service 
 //***************************************************************
-void as3935Start()
+void as3935miStart()
 {
-  #if (WITH_AS3935 > 0)
-    //the AS3935 will pull the interrupt pin HIGH when an event is registered and will keep it 
+  #if (WITH_AS3935MI > 0)
+    //the AS3935MI will pull the interrupt pin HIGH when an event is registered and will keep it 
     //pulled high until the event register is read.
-    attachInterrupt(digitalPinToInterrupt(AS3935_PIN_IRQ), as3935InterruptHandler, RISING);
-    debugln("AS3935 Interrupt detection started, waiting for events...");
-    debugPublish(String(AS3935_SENSOR_ID), "AS3935 Interrupt detection started, waiting for events...", false);
+    attachInterrupt(digitalPinToInterrupt(AS3935MI_PIN_IRQ), as3935miInterruptHandler, RISING);
+    debugln("AS3935MI Interrupt detection started, waiting for events...");
+    debugPublish(String(AS3935MI_SENSOR_ID), "AS3935MI Interrupt detection started, waiting for events...", false);
   #endif
 }
 
 //***************************************************************
-// Stop AS3935 Interrupt Service 
+// Stop AS3935MI Interrupt Service 
 //***************************************************************
-void as3935Stop()
+void as3935miStop()
 {
-  #if (WITH_AS3935 > 0)
-    detachInterrupt(digitalPinToInterrupt(AS3935_PIN_IRQ)); // Interrupts off
-    debugln("AS3935 Interrupt detection stopped.");
-    debugPublish(String(AS3935_SENSOR_ID), "AS3935 Interrupt detection stopped.", false);
+  #if (WITH_AS3935MI > 0)
+    detachInterrupt(digitalPinToInterrupt(AS3935MI_PIN_IRQ)); // Interrupts off
+    debugln("AS3935MI Interrupt detection stopped.");
+    debugPublish(String(AS3935MI_SENSOR_ID), "AS3935MI Interrupt detection stopped.", false);
   #endif
 }
 
 //***************************************************************
-// AS3935 Interrupt Service Routine. 
-// This function is called each time the AS3935 reports 
+// AS3935MI Interrupt Service Routine. 
+// This function is called each time the AS3935MI reports 
 // an event by pulling the IRQ pin high.
 //***************************************************************
-#if (WITH_AS3935 > 0)
-ICACHE_RAM_ATTR void as3935InterruptHandler()
+#if (WITH_AS3935MI > 0)
+ICACHE_RAM_ATTR void as3935miInterruptHandler()
 {
-  as3935Interrupt = true;
+  as3935miInterrupt = true;
 }
 #endif
 
 //***************************************************************
-// AS3935 Decode Results
+// AS3935MI Decode Results
 //***************************************************************
-void as3935DecodeResults(String &debugMessage)
+void as3935miDecodeResults(String &debugMessage)
 {
-  #if (WITH_AS3935 > 0)
-    //query the interrupt source from the AS3935
-    as3935Data.event = as3935.readInterruptSource();
+  #if (WITH_AS3935MI > 0)
+    //query the interrupt source from the AS3935MI
+    as3935miData.event = as3935mi.readInterruptSource();
     
     //send a report if the noise floor is too high. 
-    if (as3935Data.event == AS3935MI::AS3935_INT_NH)
+    if (as3935miData.event == AS3935MI::AS3935_INT_NH)
     {
       debugMessage = "Noise floor too high. attempting to increase noise floor threshold. ";
 
       //if the noise floor threshold setting is not yet maxed out, increase the setting.
       //note that noise floor threshold events can also be triggered by an incorrect
       //analog front end setting.
-      if (as3935.increaseNoiseFloorThreshold())
+      if (as3935mi.increaseNoiseFloorThreshold())
       {
         debugMessage += "Increased noise floor threshold."; 
       }
@@ -5937,32 +5937,32 @@ void as3935DecodeResults(String &debugMessage)
         debugMessage += "Noise floor threshold already at maximum.";
       }
 
-      as3935Data.noise = 1;
-      as3935Data.noise_sum += 1;
-      as3935Data.disturber = 0;
-      as3935Data.strike = 0;
-      as3935Data.distance = 0;
-      as3935Data.energy = 0;
-      as3935Data.unknown = 0;
+      as3935miData.noise = 1;
+      as3935miData.noise_sum += 1;
+      as3935miData.disturber = 0;
+      as3935miData.strike = 0;
+      as3935miData.distance = 0;
+      as3935miData.energy = 0;
+      as3935miData.unknown = 0;
     }
 
-    //send a report if a disturber was detected. if disturbers are masked with as3935.writeMaskDisturbers(true);
+    //send a report if a disturber was detected. if disturbers are masked with as3935mi.writeMaskDisturbers(true);
     //this event will never be reported.
-    else if (as3935Data.event == AS3935MI::AS3935_INT_D)
+    else if (as3935miData.event == AS3935MI::AS3935_INT_D)
     {
       debugMessage = "Disturber detected. attempting to increase noise floor threshold. ";
 
-      //increasing the Watchdog Threshold and / or Spike Rejection setting improves the AS3935s resistance 
+      //increasing the Watchdog Threshold and / or Spike Rejection setting improves the AS3935MIs resistance 
       //against disturbers but also decrease the lightning detection efficiency (see AS3935 datasheet)
-      uint8_t wdth = as3935.readWatchdogThreshold();
-      uint8_t srej = as3935.readSpikeRejection();
+      uint8_t wdth = as3935mi.readWatchdogThreshold();
+      uint8_t srej = as3935mi.readSpikeRejection();
 
       if ((wdth < AS3935MI::AS3935_WDTH_10) || (srej < AS3935MI::AS3935_SREJ_10))
       {
         //alternatively increase spike rejection and watchdog threshold 
         if (srej < wdth)
         {
-          if (as3935.increaseSpikeRejection())
+          if (as3935mi.increaseSpikeRejection())
           {
             debugMessage += "Increased spike rejection ratio.";
           }
@@ -5973,7 +5973,7 @@ void as3935DecodeResults(String &debugMessage)
         }
         else
         {
-          if (as3935.increaseWatchdogThreshold())
+          if (as3935mi.increaseWatchdogThreshold())
           {
             debugMessage += "Increased watchdog threshold.";
           }
@@ -5989,58 +5989,58 @@ void as3935DecodeResults(String &debugMessage)
         debugMessage = "ERROR: Watchdog Threshold and Spike Rejection settings are already maxed out.";
       }
       
-      as3935Data.noise = 0;
-      as3935Data.disturber = 1;
-      as3935Data.disturber_sum += 1;
-      as3935Data.strike = 0;
-      as3935Data.distance = 0;
-      as3935Data.energy = 0;
-      as3935Data.unknown = 0;
+      as3935miData.noise = 0;
+      as3935miData.disturber = 1;
+      as3935miData.disturber_sum += 1;
+      as3935miData.strike = 0;
+      as3935miData.distance = 0;
+      as3935miData.energy = 0;
+      as3935miData.unknown = 0;
     }
 
-    else if (as3935Data.event == AS3935MI::AS3935_INT_L)
+    else if (as3935miData.event == AS3935MI::AS3935_INT_L)
     {
-      float dist = as3935.readStormDistance();
-      float en = as3935.readEnergy();
+      float dist = as3935mi.readStormDistance();
+      float en = as3935mi.readEnergy();
 
       debugMessage = "Lightning detected! Storm Front is ";
       debugMessage += String(dist);
       debugMessage += "km away. Energy is ";
       debugMessage += String(en);
       
-      as3935Data.noise = 0;
-      as3935Data.disturber = 0;
-      as3935Data.strike = 1;
-      as3935Data.strike_sum += 1;
-      as3935Data.distance = dist;
-      as3935Data.distance_sum += dist;
-      as3935Data.energy = en;
-      as3935Data.energy_sum += en;
-      as3935Data.unknown = 0;
+      as3935miData.noise = 0;
+      as3935miData.disturber = 0;
+      as3935miData.strike = 1;
+      as3935miData.strike_sum += 1;
+      as3935miData.distance = dist;
+      as3935miData.distance_sum += dist;
+      as3935miData.energy = en;
+      as3935miData.energy_sum += en;
+      as3935miData.unknown = 0;
     }
 
     else
     {
-      debugMessage = "AS3935 unknown Interrupt source!";
+      debugMessage = "AS3935MI unknown Interrupt source!";
 
-      as3935Data.noise = 0;
-      as3935Data.disturber = 0;
-      as3935Data.strike = 0;
-      as3935Data.distance = 0;
-      as3935Data.energy = 0;
-      as3935Data.unknown = 1;
-      as3935Data.unknown_sum += 1;
+      as3935miData.noise = 0;
+      as3935miData.disturber = 0;
+      as3935miData.strike = 0;
+      as3935miData.distance = 0;
+      as3935miData.energy = 0;
+      as3935miData.unknown = 1;
+      as3935miData.unknown_sum += 1;
     }
   #endif
 }
 //***************************************************************
-// AS3935 print Results to Serial
+// AS3935MI print Results to Serial
 //***************************************************************
-void as3935PrintResults(String debugMessage)
+void as3935miPrintResults(String debugMessage)
 {
-  #if (WITH_AS3935 > 0)
+  #if (WITH_AS3935MI > 0)
 
-    debugln("**************************** AS3935 ***********************************");
+    debugln("**************************** AS3935MI ***********************************");
     debugln(debugMessage);
     debugln("***********************************************************************");
     debugln();
@@ -6049,11 +6049,11 @@ void as3935PrintResults(String debugMessage)
 }
 
 //***************************************************************
-// AS3935 publish Results to Broker
+// AS3935MI publish Results to Broker
 //***************************************************************
-boolean as3935PublishResults(String debugMessage)
+boolean as3935miPublishResults(String debugMessage)
 {
-  #if (WITH_BROKER > 0 && WITH_AS3935 > 0)
+  #if (WITH_BROKER > 0 && WITH_AS3935MI > 0)
     // Create JsonBuffer
     StaticJsonDocument<256> jsonBuffer;
     char publishJson[256];
@@ -6061,21 +6061,21 @@ boolean as3935PublishResults(String debugMessage)
     measurementTimestamp = getTimestamp();
     jsonBuffer["dateTime"] = measurementTimestamp;
 
-    if (as3935Data.event == AS3935MI::AS3935_INT_NH)
+    if (as3935miData.event == AS3935MI::AS3935_INT_NH)
     {
       jsonBuffer["lightning_noise_count"] = 1;
     }
 
-    else if (as3935Data.event == AS3935MI::AS3935_INT_D)
+    else if (as3935miData.event == AS3935MI::AS3935_INT_D)
     {
       jsonBuffer["lightning_disturber_count"] = 1;
     }
 
-    else if (as3935Data.event == AS3935MI::AS3935_INT_L)
+    else if (as3935miData.event == AS3935MI::AS3935_INT_L)
     {
       jsonBuffer["lightning_strike_count"] = 1;
-      jsonBuffer["lightning_distance"] = as3935Data.distance;
-      jsonBuffer["lightning_energy"] = as3935Data.energy;
+      jsonBuffer["lightning_distance"] = as3935miData.distance;
+      jsonBuffer["lightning_energy"] = as3935miData.energy;
     }
 
     else
@@ -6084,18 +6084,18 @@ boolean as3935PublishResults(String debugMessage)
     }
 
     serializeJson(jsonBuffer, publishJson);
-    sensorPublish(String(AS3935_SENSOR_ID), publishJson, false);
-    debugPublish(String(AS3935_SENSOR_ID), debugMessage, false);
+    sensorPublish(String(AS3935MI_SENSOR_ID), publishJson, false);
+    debugPublish(String(AS3935MI_SENSOR_ID), debugMessage, false);
 
   #endif
 }
 
 //***************************************************************
-// Following function sends AS3935 sensor data to WeeWX
+// Following function sends AS3935MI sensor data to WeeWX
 //***************************************************************
-boolean as3935WeewxUploadResults()
+boolean as3935miWeewxUploadResults()
 {
-  #if (WITH_AS3935 > 0 && WITH_WEEWX_UPLOAD > 0)
+  #if (WITH_AS3935MI > 0 && WITH_WEEWX_UPLOAD > 0)
     if (bitRead(stationActions, BIT_STATUS_STOPPED_SEND_WEEWX) == 1)
     {
       debugln("Transfer to WeeWX is stopped!");
@@ -6113,21 +6113,21 @@ boolean as3935WeewxUploadResults()
     WeeWX_URL += WEEWX_PASSWORD;
     WeeWX_URL += "&dateutc=now";
 
-    if (as3935Data.event == AS3935MI::AS3935_INT_NH)
+    if (as3935miData.event == AS3935MI::AS3935_INT_NH)
     {
       WeeWX_URL += "&lightning_noise_count=1";
     }
 
-    else if (as3935Data.event == AS3935MI::AS3935_INT_D)
+    else if (as3935miData.event == AS3935MI::AS3935_INT_D)
     {
       WeeWX_URL += "&lightning_disturber_count=1";
     }
 
-    else if (as3935Data.event == AS3935MI::AS3935_INT_L)
+    else if (as3935miData.event == AS3935MI::AS3935_INT_L)
     {
       WeeWX_URL += "&lightning_strike_count=1";
-      WeeWX_URL += "&lightning_distance=" + String(as3935Data.distance);
-      WeeWX_URL += "&lightning_energy=" + String(as3935Data.energy);
+      WeeWX_URL += "&lightning_distance=" + String(as3935miData.distance);
+      WeeWX_URL += "&lightning_energy=" + String(as3935miData.energy);
     }
 
     else
@@ -6583,35 +6583,35 @@ boolean loopPublishResults()
         jsonBuffer["approxAltitude"] = round(bme680Data.approxAltitude * 100) / 100;
       #endif
 
-      #if (WITH_AS3935 > 0)
-        jsonBuffer["strike_sum"] = as3935Data.strike_sum;
-        jsonBuffer["noise_sum"] = as3935Data.noise_sum;
-        jsonBuffer["disturber_sum"] = as3935Data.disturber_sum;
-        jsonBuffer["unknown_sum"] = as3935Data.unknown_sum;
+      #if (WITH_AS3935MI > 0)
+        jsonBuffer["strike_sum"] = as3935miData.strike_sum;
+        jsonBuffer["noise_sum"] = as3935miData.noise_sum;
+        jsonBuffer["disturber_sum"] = as3935miData.disturber_sum;
+        jsonBuffer["unknown_sum"] = as3935miData.unknown_sum;
 
         float dist = 0.0;
         float en = 0.0;
-        if (as3935Data.strike_sum > 0)
+        if (as3935miData.strike_sum > 0)
         {
-          if (as3935Data.distance_sum > 0)
+          if (as3935miData.distance_sum > 0)
           {
-            dist = round((as3935Data.distance_sum / as3935Data.strike_sum) * 100) / 100;
+            dist = round((as3935miData.distance_sum / as3935miData.strike_sum) * 100) / 100;
             jsonBuffer["distance_avg"] = dist;
           }
-          if (as3935Data.energy > 0)
+          if (as3935miData.energy > 0)
           {
-            en = round((as3935Data.energy_sum / as3935Data.strike_sum) * 100) / 100;
+            en = round((as3935miData.energy_sum / as3935miData.strike_sum) * 100) / 100;
             jsonBuffer["energy_avg"] = en;    
           }
         }
         
-        as3935Data.event = 0;
-        as3935Data.strike_sum = 0;
-        as3935Data.distance_sum = 0;
-        as3935Data.energy_sum = 0;
-        as3935Data.noise_sum = 0;
-        as3935Data.disturber_sum = 0;
-        as3935Data.unknown_sum = 0;
+        as3935miData.event = 0;
+        as3935miData.strike_sum = 0;
+        as3935miData.distance_sum = 0;
+        as3935miData.energy_sum = 0;
+        as3935miData.noise_sum = 0;
+        as3935miData.disturber_sum = 0;
+        as3935miData.unknown_sum = 0;
       #endif
 
       #if (WITH_VOLTAGE > 0)
@@ -6703,13 +6703,13 @@ void setup()
   debugln(STATION_ID);
 
   // inits
-  #if (WITH_AS3935 > 9)
-    as3935Data.strike = 0;
-    as3935Data.distance = 0;
-    as3935Data.energy = 0;
-    as3935Data.noise = 0;
-    as3935Data.disturber = 0;
-    as3935Data.unknown = 0;
+  #if (WITH_AS3935MI > 0)
+    as3935miData.strike = 0;
+    as3935miData.distance = 0;
+    as3935miData.energy = 0;
+    as3935miData.noise = 0;
+    as3935miData.disturber = 0;
+    as3935miData.unknown = 0;
   #endif
   ventusStatus = 0;
 
@@ -6859,8 +6859,8 @@ void setup()
     loopWeewxUploadResults();
   }
 
-  // AS3935 Setup
-  as3935Setup();
+  // AS3935MI Setup
+  as3935miSetup();
 
   // Timer Setup
   timerSetup();
@@ -6869,11 +6869,11 @@ void setup()
   w132Setup();
   w174Setup();
 
-  // Ventus/AS3935 Interrups start
+  // Ventus/AS3935MI Interrups start
   w132Start();
   w174Start();
   timerStart();
-  as3935Start();
+  as3935miStart();
 
   debugln("start loop...");
   debugln();
@@ -6905,7 +6905,7 @@ void loop()
       debugPublish(String(SYSTEM_SENSOR_ID), "Loop: OTA is required.", false);
       w132Stop();
       w174Stop();
-      as3935Stop();
+      as3935miStop();
       timerStop();
       otaStart();
       return;
@@ -6915,7 +6915,7 @@ void loop()
     {
       w132Stop();
       w174Stop();
-      as3935Stop();
+      as3935miStop();
       timerStop();
       bitClear(stationActions, BIT_ACTION_REQUIRED_REBOOT);
       brokerPublish(ACTION_TOPIC_REBOOT, "0", true);
@@ -6939,7 +6939,7 @@ void loop()
     {
       w132Stop();
       w174Stop();
-      as3935Stop();
+      as3935miStop();
       timerStop();
 
       if (!brokerConnect(true))
@@ -6961,7 +6961,7 @@ void loop()
 
       w132Start();
       w174Start();
-      as3935Start();
+      as3935miStart();
       timerStart();
     }
   #endif
@@ -7073,35 +7073,35 @@ void loop()
       // go to deepsleep
       stationDeepSleep(startTime, true, true);
     }
-  #elif (WITH_AS3935 != 1)
+  #elif (WITH_AS3935MI != 1)
     // go to deepsleep
     stationDeepSleep(startTime, true, true);
   #endif
 
-  #if (WITH_AS3935 > 0)
-    if (as3935Interrupt)
+  #if (WITH_AS3935MI > 0)
+    if (as3935miInterrupt)
     {
       //reset the interrupt variable
-      as3935Interrupt = false;
+      as3935miInterrupt = false;
 
-      debugln("AS3935 Interrupt fired.");
-      debugPublish(String(SYSTEM_SENSOR_ID), "AS3935 Interrupt fired.", false);
+      debugln("AS3935MI Interrupt fired.");
+      debugPublish(String(SYSTEM_SENSOR_ID), "AS3935MI Interrupt fired.", false);
 
       // TODO??? publish saved Topics
       // brokerPublishBuffer();
 
-      // Stop AS3935 Interrupt
-      //as3935Stop();
+      // Stop AS3935MI Interrupt
+      //as3935miStop();
 
       String debugMessage;
-      as3935DecodeResults(debugMessage);
-      as3935WeewxUploadResults();
+      as3935miDecodeResults(debugMessage);
+      as3935miWeewxUploadResults();
 
-      // Start AS3935 Interrupt again
-      //as3935Start();
+      // Start AS3935MI Interrupt again
+      //as3935miStart();
 
-      as3935PrintResults(debugMessage);
-      as3935PublishResults(debugMessage);
+      as3935miPrintResults(debugMessage);
+      as3935miPublishResults(debugMessage);
 
       debugln("Back to loop.");
     }
