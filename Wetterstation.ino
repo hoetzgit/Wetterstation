@@ -410,6 +410,8 @@ unsigned int ventusStatus = 0;
 
   //this value will be set to true by the AS3935 interrupt service routine.
   volatile bool as3935miInterrupt = false;
+  constexpr uint32_t SENSE_INCREASE_INTERVAL = 15000;  //15 s sensitivity increase interval
+  uint32_t sense_adj_last_ = 0L;                       //time of last sensitivity adjustment
   
   struct as3935miDataType
   {
@@ -5950,7 +5952,7 @@ void as3935miDecodeResults(String &debugMessage)
     //this event will never be reported.
     else if (as3935miData.event == AS3935MI::AS3935_INT_D)
     {
-      debugMessage = "Disturber detected. attempting to increase noise floor threshold. ";
+      debugMessage = "Disturber detected, attempting to increase noise floor threshold. ";
 
       //increasing the Watchdog Threshold and / or Spike Rejection setting improves the AS3935MIs resistance 
       //against disturbers but also decrease the lightning detection efficiency (see AS3935 datasheet)
@@ -5959,6 +5961,8 @@ void as3935miDecodeResults(String &debugMessage)
 
       if ((wdth < AS3935MI::AS3935_WDTH_10) || (srej < AS3935MI::AS3935_SREJ_10))
       {
+        sense_adj_last_ = millis();
+        
         //alternatively increase spike rejection and watchdog threshold 
         if (srej < wdth)
         {
@@ -6030,6 +6034,46 @@ void as3935miDecodeResults(String &debugMessage)
       as3935miData.energy = 0;
       as3935miData.unknown = 1;
       as3935miData.unknown_sum += 1;
+    }
+
+    //increase sensor sensitivity every once in a while. SENSE_INCREASE_INTERVAL controls how quickly the code 
+    //attempts to increase sensitivity. 
+    if (millis() - sense_adj_last_ > SENSE_INCREASE_INTERVAL)
+    {
+      sense_adj_last_ = millis();
+  
+      debugMessage += "No disturber detected, attempting to decrease noise floor threshold. ";
+  
+      uint8_t wdth = as3935mi.readWatchdogThreshold();
+      uint8_t srej = as3935mi.readSpikeRejection();
+  
+      if ((wdth > AS3935MI::AS3935_WDTH_0) || (srej > AS3935MI::AS3935_SREJ_0))
+      {
+  
+        //alternatively derease spike rejection and watchdog threshold 
+        if (srej > wdth)
+        {
+          if (as3935mi.decreaseSpikeRejection())
+          {
+            debugMessage += "Decreased spike rejection ratio.";
+          }
+          else
+          {
+            debugMessage += "Spike rejection ratio already at minimum.";
+          }
+        }
+        else
+        {
+          if (as3935mi.decreaseWatchdogThreshold())
+          {
+            debugMessage += "Decreased watchdog threshold.";
+          }
+          else
+          {
+            debugMessage += "Watchdog threshold already at minimum.";
+          }
+        }
+      }
     }
   #endif
 }

@@ -35,7 +35,7 @@
 
 // WLAN
 #define WLAN_SSID "Radio Eriwan"
-#define WLAN_PASSWORD	"xxx"
+#define WLAN_PASSWORD "xxx"
 
 // BROKER
 #if (WITH_BROKER > 0)
@@ -70,7 +70,7 @@ IPAddress subnet(255, 255, 255, 0);
 // Voltage Sensor Id
 #define VOLTAGE_SENSOR_ID "stationVoltage"
 // Voltage divider R1 = 220k+100k+220k =540k and R2=100k
-#define VOLTAGE_CALIB_FACTOR 5.24 // change this value to calibrate the battery voltage
+#define VOLTAGE_CALIB_FACTOR 5.25 // change this value to calibrate the battery voltage
 
 // invalid Temperature
 #define INVALID_FLOAT_VALUE -9999.0
