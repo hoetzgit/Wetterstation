@@ -29,51 +29,25 @@
 #define WITH_TIMER 0          // 0 to disable Timer Routines
 #define WITH_BROKER 1         // 0 to disable publish to broker
 
+// Station IP Address
+IPAddress ip(192, 168, 0, 171);
+
 // device Id
 #define STATION_ID "ventus"
 #define STATION_NUM_ID 1
 
-// WLAN
-#define WLAN_SSID "Radio Eriwan"
-#define WLAN_PASSWORD "xxx"
-
 // BROKER
 #if (WITH_BROKER > 0)
-  #define BROKER_SERVER "192.168.0.182"
-  #define BROKER_SERVERPORT 1883 
-  #define BROKER_USERNAME ""
-  #define BROKER_PASSWORD ""
   #define BROKER_CLIENTID "ventus"
-  #define BROKER_OUTPUTFORMAT "json"
-  #define BROKER_COLLECTED_VALUES "loop"
-  #define BROKER_MQTT_BUFFER_SIZE 1024
-  #define BROKER_KEEP_ALIVE 90
-  const String ACTION_TOPIC_PRAEFIX = String(STATION_ID) + "/action/";
 #endif
-
-// NTP Server
-#define NTP_SERVER "192.168.0.254"
-
-// Station IP Address
-IPAddress ip(192, 168, 0, 171);
-IPAddress gateway(192, 168, 0, 254);
-IPAddress subnet(255, 255, 255, 0);
-
+  
 // Weatherunderground Protokoll to WeeWX
 #define WEEWX_SERVER "192.168.0.187"
-#define WEEWX_SERVER_PORT 8080
-#define WEEWX_SERVER_PATH "/weatherstation/updateweatherstation.php"
-#define WEEWX_SERVER_UPLOAD "GET /weatherstation/updateweatherstation.php"
 #define WEEWX_ID "VENTUS"
 #define WEEWX_PASSWORD "geheim"
 
-// Voltage Sensor Id
-#define VOLTAGE_SENSOR_ID "stationVoltage"
 // Voltage divider R1 = 220k+100k+220k =540k and R2=100k
 #define VOLTAGE_CALIB_FACTOR 5.20 // change this value to calibrate the battery voltage
-
-// invalid Temperature
-#define INVALID_FLOAT_VALUE -9999.0
 
 // BME280 offsets
 #define BME280_TEMPERATURE_OFFSET 0.0
@@ -87,17 +61,6 @@ IPAddress subnet(255, 255, 255, 0);
 
 // W132 offsets
 #define W132_WINDDIR_OFFSET 0
-// W132 max offline
-#define W132_MAX_OFFLINE 300 // 5 Minutes
-
-// W174 max offline
-#define W174_MAX_OFFLINE 300 // 5 Minutes
-// W174 rain bucket size
-#define W174_BUCKET_SIZE 0.25 // 0.25mm rain/count
-
-// Sleep Mode hours
-#define SLEEP_DAY_HOUR 5
-#define SLEEP_NIGHT_HOUR 22
 
 // Sleep time
 #if (WITH_W132 > 0)

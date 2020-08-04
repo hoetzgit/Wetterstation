@@ -46,16 +46,6 @@
 //   EN_VREG  --------- 5V
 //   other pins can be left unconnected.
 //
-#define WITH_DEBUG_TO_SERIAL 0 // 0 to disable debug output to serial
-#define WITH_DEBUG_TO_BROKER 1 // 0 to disable debug output to broker
-#define WITH_ERROR_TO_BROKER 1 // 0 to disable error output to broker
-#define WITH_DEBUG_BROKER 1    // 0 to disable broker debug serial output 
-#define WITH_DEBUG_SENSORS 1   // 0 to disable sensor debug serial output
-#define WITH_CALC_TO_BROKER 1  // 0 to disable calulated values publishing
-
-// Station altitude
-#define STATION_ALTITUDE 394
-
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
@@ -69,8 +59,9 @@
 #include <TimeLib.h>             //https://github.com/PaulStoffregen/Time.git
 
 //#include "ventus.h"   // Ventus Station
-//#include "solar.h"   // Solar Station
-#include "blitz.h"   // Blitz Station
+#include "solar.h"   // Solar Station
+//#include "blitz.h"   // Blitz Station
+#include "Wetterstation.h" // Common configs
 
 #if (WITH_FLASH > 0)
   #include <FS.h>
@@ -136,12 +127,6 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, NTP_SERVER, 0, 60000);
 
 //***************************************************************
-// Id for System data
-//***************************************************************
-// System "sensor" Id
-#define SYSTEM_SENSOR_ID "system"
-
-//***************************************************************
 // Broker configuration
 //***************************************************************
 #if (WITH_BROKER > 0)
@@ -150,41 +135,6 @@ NTPClient timeClient(ntpUDP, NTP_SERVER, 0, 60000);
   // Broker client class
   PubSubClient mqttclient(wifiClient);
 
-  // System topics
-  const String ACTION_TOPIC_OTA                 = String(ACTION_TOPIC_PRAEFIX) + "ota";
-  const String ACTION_TOPIC_REBOOT              = String(ACTION_TOPIC_PRAEFIX) + "reboot";
-  const String ACTION_TOPIC_BUFFERCLEAN         = String(ACTION_TOPIC_PRAEFIX) + "bufferclean";
-  const String ACTION_TOPIC_CONFIGCLEAN         = String(ACTION_TOPIC_PRAEFIX) + "configclean";
-  const String ACTION_TOPIC_STOP_PUBLISH_SENSOR = String(ACTION_TOPIC_PRAEFIX) + "stop_publish_sensor";
-  const String ACTION_TOPIC_STOP_PUBLISH_DEBUG  = String(ACTION_TOPIC_PRAEFIX) + "stop_publish_debug";
-  const String ACTION_TOPIC_STOP_PUBLISH_ERROR  = String(ACTION_TOPIC_PRAEFIX) + "stop_publish_error";
-  const String ACTION_TOPIC_STOP_PUBLISH_BUFFER = String(ACTION_TOPIC_PRAEFIX) + "stop_publish_buffer";
-  const String ACTION_TOPIC_STOP_SEND_WEEWX     = String(ACTION_TOPIC_PRAEFIX) + "stop_send_weewx";
-
-  // Subscribed bits for brokerStatus
-  #define BIT_BROKER_RECEIVED_OTA 0
-  #define BIT_BROKER_RECEIVED_REBOOT 1
-  #define BIT_BROKER_RECEIVED_BUFFERCLEAN 2
-  #define BIT_BROKER_RECEIVED_CONFIGCLEAN 3
-  #define BIT_BROKER_RECEIVED_STOP_PUBLISH_SENSOR 4
-  #define BIT_BROKER_RECEIVED_STOP_PUBLISH_DEBUG 5
-  #define BIT_BROKER_RECEIVED_STOP_PUBLISH_ERROR 6
-  #define BIT_BROKER_RECEIVED_STOP_PUBLISH_BUFFER 7
-  #define BIT_BROKER_RECEIVED_STOP_SEND_WEEWX 8
-  unsigned int brokerStatus = 0;
-  
-  // Action/Status Bits for Weather Station
-  #define BIT_ACTION_REQUIRED_OTA 0
-  #define BIT_STATUS_ACTIVE_OTA 1
-  #define BIT_ACTION_REQUIRED_REBOOT 2
-  #define BIT_ACTION_REQUIRED_BUFFERCLEAN 3
-  #define BIT_ACTION_REQUIRED_CONFIGCLEAN 4
-  #define BIT_STATUS_STOPPED_PUBLISH_SENSOR 5
-  #define BIT_STATUS_STOPPED_PUBLISH_DEBUG 6
-  #define BIT_STATUS_STOPPED_PUBLISH_ERROR 7
-  #define BIT_STATUS_STOPPED_PUBLISH_BUFFER 8
-  #define BIT_STATUS_STOPPED_SEND_WEEWX 9
-  #define BIT_STATUS_PUBLISHED_BUFFER 10
   unsigned int stationActions = 0;
   
   int bufferedTopics = 0;
@@ -5797,7 +5747,7 @@ void as3935miSetup()
     //check the IRQ pin connection.
     if (!as3935mi.checkIRQ())
     {
-      debugln("AS3935MI checkIRQ() failed. check if the correct IRQ pin was passed to the AS3935SPI constructor. ");
+      debugln("AS3935MI checkIRQ() failed. Check if the correct IRQ pin was passed to the AS3935SPI constructor. ");
       errorPublish(String(AS3935MI_SENSOR_ID), "AS3935MI checkIRQ() failed. check if the correct IRQ pin was passed to the AS3935SPI constructor. ", true);
       while (1);
     }
@@ -6383,7 +6333,7 @@ boolean loopWeewxUploadResults()
                "Host: " + WEEWX_SERVER + "\r\n" +
                "User-Agent: WeatherStation\r\n" +
                "Connection: close\r\n\r\n");
-    WeeWX_URL = ""
+    WeeWX_URL = "";
     debug("Request sent: ");
     while (weewxClient.connected())
     {
