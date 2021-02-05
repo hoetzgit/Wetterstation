@@ -13,6 +13,8 @@
 
 // Station altitude
 #define STATION_ALTITUDE 394
+#define STATION_LATITUDE 49.632270
+#define STATION_LONGITUDE 12.056186
 
 // WLAN
 #define WLAN_SSID "Radio Eriwan"
@@ -21,6 +23,25 @@
 // Station IP Address
 IPAddress gateway(192, 168, 0, 254);
 IPAddress subnet(255, 255, 255, 0);
+IPAddress dns1(192, 168, 0, 60);
+IPAddress dns2(192, 168, 0, 254);
+
+// Aeris Weather API Account
+#if (WITH_AERIS_AQI > 0)
+  #define AERIS_AQI_TIMEOUT 3540
+  #define AERIS_API_ID "xxx"
+  #define AERIS_API_SECRET "xxx"
+  #define AERIS_LOCATION "Weiherhammer,DE"
+  const String AERIS_AQI_HTTPS_URL = "https://api.aerisapi.com/airquality/" + String(AERIS_LOCATION) + "?&format=json&client_id=" + String(AERIS_API_ID) + "&client_secret=" + String(AERIS_API_SECRET);
+  const uint8_t AERIS_HTTPS_FINGERPRINT[20] = {0x2D, 0x0C, 0x20, 0xB2, 0xBE, 0xE4, 0x63, 0x24, 0x97, 0x2B, 0xD8, 0xBE, 0x70, 0x6B, 0xFA, 0x43, 0x07, 0x21, 0xDF, 0x43};
+#endif
+
+// Openweathermap API Account
+#if (WITH_OWM_AQI > 0)
+  #define OWM_AQI_TIMEOUT 1800
+  #define OWM_API_APPID "xxx"
+  const String OWM_AQI_HTTP_URL = "http://api.openweathermap.org/data/2.5/air_pollution?lat=" + String(STATION_LATITUDE) + "&lon=" + String(STATION_LONGITUDE) + "&appid=" + String(OWM_API_APPID);
+#endif
 
 // BROKER
 #if (WITH_BROKER > 0)
@@ -32,9 +53,9 @@ IPAddress subnet(255, 255, 255, 0);
   #define BROKER_COLLECTED_VALUES "loop"
   #define BROKER_MQTT_BUFFER_SIZE 1024
   #define BROKER_KEEP_ALIVE 90
-  const String ACTION_TOPIC_PRAEFIX = String(STATION_ID) + "/action/";
 
   // System topics
+  const String ACTION_TOPIC_PRAEFIX             = String(STATION_ID) + "/action/";
   const String ACTION_TOPIC_OTA                 = String(ACTION_TOPIC_PRAEFIX) + "ota";
   const String ACTION_TOPIC_REBOOT              = String(ACTION_TOPIC_PRAEFIX) + "reboot";
   const String ACTION_TOPIC_BUFFERCLEAN         = String(ACTION_TOPIC_PRAEFIX) + "bufferclean";
@@ -72,9 +93,11 @@ IPAddress subnet(255, 255, 255, 0);
 #endif
 
 // Weatherunderground Protokoll to WeeWX
-#define WEEWX_SERVER_PORT 8080
-#define WEEWX_SERVER_PATH "/weatherstation/updateweatherstation.php"
-#define WEEWX_SERVER_UPLOAD "GET /weatherstation/updateweatherstation.php"
+#if (WITH_WEEWX_UPLOAD > 0)
+  #define WEEWX_SERVER_PORT 8080
+  #define WEEWX_SERVER_PATH "/weatherstation/updateweatherstation.php"
+  #define WEEWX_SERVER_UPLOAD "GET /weatherstation/updateweatherstation.php"
+#endif
 
 // NTP Server
 #define NTP_SERVER "192.168.0.254"
@@ -83,7 +106,19 @@ IPAddress subnet(255, 255, 255, 0);
 #define SYSTEM_SENSOR_ID "system"
 
 // Voltage Sensor Id
-#define VOLTAGE_SENSOR_ID "stationVoltage"
+#if (WITH_VOLTAGE > 0)
+  #define VOLTAGE_SENSOR_ID "stationVoltage"
+#endif
+
+// Aeris AQI Sensor Id
+#if (WITH_AERIS_AQI > 0)
+  #define AERIS_AQI_SENSOR_ID "aerisAQI"
+#endif
+
+// Openweathermap AQI Sensor Id
+#if (WITH_OWM_AQI > 0)
+  #define OWM_AQI_SENSOR_ID "openweathermapAQI"
+#endif
 
 // invalid Temperature
 #define INVALID_FLOAT_VALUE -9999.0

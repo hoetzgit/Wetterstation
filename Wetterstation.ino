@@ -48,7 +48,8 @@
 //
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
-#include <WiFiClient.h>
+//#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 #include <ESP8266HTTPUpdateServer.h>
@@ -61,6 +62,7 @@
 //#include "ventus.h"   // Ventus Station
 #include "solar.h"   // Solar Station
 //#include "blitz.h"   // Blitz Station
+//#include "test.h"    // Test Station
 #include "Wetterstation.h" // Common configs
 
 #if (WITH_FLASH > 0)
@@ -96,7 +98,23 @@
 //WiFiClient WiFiClient;
 // or... use WiFiFlientSecure for SSL
 WiFiClient wifiClient;
-WiFiClient weewxClient;
+
+#if (WITH_WEEWX_UPLOAD > 0)
+  WiFiClient weewxClient;
+#endif
+
+#if (WITH_AERIS_AQI > 0)
+  #include <ESP8266HTTPClient.h>
+  #include <WiFiClientSecureBearSSL.h>
+
+  HTTPClient aerisHTTPS;
+#endif
+
+#if (WITH_OWM_AQI > 0)
+  #include <ESP8266HTTPClient.h>
+
+  HTTPClient openweathermapHTTP;
+#endif
 
 //***************************************************************
 // ESP8266 RTC memory
@@ -171,6 +189,52 @@ NTPClient timeClient(ntpUDP, NTP_SERVER, 0, 60000);
     String pressure_in_words;           // Air pressure in words
     String accuracy_in_words;           // Zambretti's prediction accuracy in words
   } zambrettiData;
+#endif
+
+//***************************************************************
+// Aeris Weather AQI API 
+//***************************************************************
+#if (WITH_AERIS_AQI > 0)
+  struct aerisAQIDataType
+  {
+    byte valid;
+    byte required;
+    byte received;
+    byte published;
+    unsigned long measurementTimestamp;
+    int aqi;
+    float o3;
+    float co;
+    float no2;
+    float so2;
+    float pm2_5;
+    float pm10_0;
+    String debug;
+  } aerisAQIData;
+#endif
+
+//***************************************************************
+// Openweathermap AQI API 
+//***************************************************************
+#if (WITH_OWM_AQI > 0)
+  struct openweathermapAQIDataType
+  {
+    byte valid;
+    byte required;
+    byte received;
+    byte published;
+    unsigned long measurementTimestamp;
+    int aqi;
+    float co;
+    float no;
+    float no2;
+    float o3;
+    float so2;
+    float pm2_5;
+    float pm10_0;
+    float nh3;
+    String debug;
+  } openweathermapAQIData;
 #endif
 
 //***************************************************************
@@ -631,6 +695,7 @@ unsigned int ventusStatus = 0;
 boolean brokerPublish(String topic, String payload, boolean retained);
 boolean errorPublish(String sensorId, String errorMessage, boolean retained);
 
+
 //***************************************************************
 //Calculate Time Differences
 //***************************************************************
@@ -936,274 +1001,379 @@ boolean errorPublish(String sensorId, String errorMessage, boolean retained=fals
 //***************************************************************
 boolean readConfiguration()
 {
-  debugln("********************* CONFIG READ **************************");
+  #if ((WITH_FLASH > 0) || (WITH_SD > 0))
+    File file;
+    boolean valid;
+  
+    debugln("********************* CONFIG READ **************************");
+  
+    // W174 Data
+    #if (WITH_W174 > 0)
+      w174Data.valid = 0;
+    #endif
+  
+    // W132 Data
+    #if (WITH_W132 > 0)
+      w132TempHumidityData.valid = 0;
+      w132WindSpeedData.valid = 0;
+    #endif
 
-  // W174 Data
-  #if (WITH_W174 > 0)
-    w174Data.valid = 0;
-  #endif
+    // Aeris AQI API Data
+    #if (WITH_AERIS_AQI > 0)
+      aerisAQIData.valid = 0;
+      aerisAQIData.required = 0;
+    #endif
 
-  // W132 Data
-  #if (WITH_W132 > 0)
-    w132TempHumidityData.valid = 0;
-    w132WindSpeedData.valid = 0;
-  #endif
+    // openweathermap AQI API Data
+    #if (WITH_OWM_AQI > 0)
+      openweathermapAQIData.valid = 0;
+      openweathermapAQIData.required = 0;
+    #endif
 
-  // Config Buffer if required
+    // Config Buffer if required
+  
+    #if (WITH_BROKER > 0)
+      debug("Clean Config: ");
+      debugln(bitRead(stationActions, BIT_ACTION_REQUIRED_CONFIGCLEAN));
+      
+      if (bitRead(stationActions, BIT_ACTION_REQUIRED_CONFIGCLEAN) == 1)
+      {
+        debugln("Cleaning buffered config.");
+        #if (WITH_FLASH > 0)
+          SPIFFS.remove(STATION_CONFIG_FILE);
+          //SPIFFS.format();
+        #elif (WITH_SD > 0)
+          sd.remove(STATION_CONFIG_FILE);
+        #endif
+        bitClear(stationActions, BIT_ACTION_REQUIRED_CONFIGCLEAN);
+        brokerPublish(String(ACTION_TOPIC_CONFIGCLEAN), "0", true);
+        debugln("************************************************************");
+        debugln();
+        return true;
+      }
+    #endif
 
-  #if (WITH_BROKER > 0)
-    debug("Clean Config: ");
-    debugln(bitRead(stationActions, BIT_ACTION_REQUIRED_CONFIGCLEAN));
-    
-    if (bitRead(stationActions, BIT_ACTION_REQUIRED_CONFIGCLEAN) == 1)
-    {
-      debugln("Cleaning buffered config.");
-      #if (WITH_FLASH > 0)
-        SPIFFS.remove(STATION_CONFIG_FILE);
-        //SPIFFS.format();
-      #elif (WITH_SD > 0)
-        sd.remove(STATION_CONFIG_FILE);
-      #endif
-      bitClear(stationActions, BIT_ACTION_REQUIRED_CONFIGCLEAN);
-      brokerPublish(String(ACTION_TOPIC_CONFIGCLEAN), "0", true);
+    // Check if file exists
+    #if (WITH_FLASH > 0)
+      debugln("Check if config file exists on Flash ...");
+      if (!SPIFFS.exists(STATION_CONFIG_FILE))
+      {
+        debugln("Config file don't exists, creating ...");
+        file = SPIFFS.open(STATION_CONFIG_FILE, "w");
+        file.close();
+        debugln("Config file created.");
+      }
+      else
+      {
+        debugln("Config file exists, OK.");  
+      }
+    #else (WITH_SD > 0)
+      debugln("Check if config file exists on SD Card ...");
+      if (!sd.exists(STATION_CONFIG_FILE))
+      {
+        debugln("Config file don't exists, creating ...");
+        file = sd.open(STATION_CONFIG_FILE, FILE_WRITE);
+        file.close();
+        debugln("Config file created.");
+      }
+      else
+      {
+        debugln("Config file exists, OK.");  
+      }
+    #endif
+          
+    // Open file for reading
+    #if (WITH_FLASH > 0)
+      debugln("Load config file from SPIFFS (Flash) ...");
+      file = SPIFFS.open(STATION_CONFIG_FILE, "r");
+    #elif (WITH_SD > 0) // Open file for SD Card reading
+      debugln("Load config file from SD Card ...");
+      file = sd.open(STATION_CONFIG_FILE, FILE_READ);
+    #else
       debugln("************************************************************");
       debugln();
-      return true;
-    }
-  #endif
-        
-  // Open file for reading
-  #if (WITH_FLASH > 0)
-    debugln("Load config file from SPIFFS (Flash) ...");
-    File file = SPIFFS.open(STATION_CONFIG_FILE, "r");
-  #elif (WITH_SD > 0) // Open file for SD Card reading
-    debugln("Load config file from SD Card ...");
-    File file = sd.open(STATION_CONFIG_FILE, FILE_READ);
-  #else
-    debugln("************************************************************");
-    debugln();
-    return false;
-  #endif
-
-  if (!file)
-  {
-    file.close();
-    debug("Failed to open config file: ");
-    debugln(STATION_CONFIG_FILE);
-    errorPublish(String(SYSTEM_SENSOR_ID), "Failed to open config file!", false);
-    debugln("************************************************************");
-    debugln();
-    return false;
-  }
-
-  unsigned long actTime = getTimestamp();
-  // Create JsonBuffer
-  StaticJsonDocument<1024> jsonBuffer;
-/*
-  char lineBuffer[1024];
-  int l = 0;
+      return false;
+    #endif
   
-  if (file.available())
-  {
-    debug("File not avaiable, file: ");
-    debugln(String(STATION_CONFIG_FILE));
-    file.close();
-    debugln("************************************************************");
-    debugln();
-    return false;
-  }
+    if (!file)
+    {
+      file.close();
+      debug("Failed to open config file: ");
+      debugln(STATION_CONFIG_FILE);
+      errorPublish(String(SYSTEM_SENSOR_ID), "Failed to open config file!", false);
+      debugln("************************************************************");
+      debugln();
+      return false;
+    }
+  
+    unsigned long actTime = getTimestamp();
+    // Create JsonBuffer
+    StaticJsonDocument<1024> jsonBuffer;
+  /*
+    char lineBuffer[1024];
+    int l = 0;
     
-  l = file.readBytesUntil('\n', lineBuffer, sizeof(lineBuffer));
-  file.close();
-  
-  lineBuffer[l] = 0;
-  debug("Buffer: ");
-  debugln(lineBuffer);
-*/
-
-  // Deserialize the JSON document
-  // DeserializationError error = deserializeJson(jsonBuffer, lineBuffer);
-  DeserializationError error = deserializeJson(jsonBuffer, file);
-  file.close();
-  
-  if (error)
-  {
-    debug("DeserializationError file: ");
-    debugln(String(STATION_CONFIG_FILE));
-    debugln("************************************************************");
-    debugln();
-    return false;
-  }
-
-  configData.actTimestamp = (int)jsonBuffer["actTimestamp"];
-  debug("Timestamp.............................: ");
-  debugln(configData.actTimestamp);
-
-  //stationActions = (int)jsonBuffer["stationActions"];
-  //debug("stationActions........................: ");
-  //debugln(stationActions);
-
-  #if (WITH_W174 > 0)
-    w174Data.measurementTimestamp = (int)jsonBuffer["w174Data.measurementTimestamp"];
-    debug("W174 measurementTimestamp.............: ");
-    debugln(w174Data.measurementTimestamp);
-
-    w174Data.rainCounter = (int)jsonBuffer["w174Data.rainCounter"];
-    w174Data.rain = 0;
-    w174Data.rainTotal = w174Data.rainCounter * W174_BUCKET_SIZE;
-    debug("W174 rainCounter......................: ");
-    debugln(w174Data.rainCounter);
-
-    w174Data.rainBatteryStatus = (int)jsonBuffer["w174Data.rainBatteryStatus"];
-    debug("W174 rainBatteryStatus................: ");
-    debugln(w174Data.rainBatteryStatus);
-
-    w174Data.valid = 1;
-  #endif
-
-  #if (WITH_W132 > 0)
-    w132TempHumidityData.measurementTimestamp = (int)jsonBuffer["w132TempHumidityData.measurementTimestamp"];
-    debug("W132 TempHumidity measurementTimestamp: ");
-    debugln(w132TempHumidityData.measurementTimestamp);
-
-    w132TempHumidityData.temperature = (float)jsonBuffer["w132TempHumidityData.temperature"];
-    debug("W132 TempHumidity temperature.........: ");
-    debugln(w132TempHumidityData.temperature);
-
-    w132TempHumidityData.humidity = (int)jsonBuffer["w132TempHumidityData.humidity"];
-    debug("W132 TempHumidity humidity............: ");
-    debugln(w132TempHumidityData.humidity);
-
-    if (actTime - w132TempHumidityData.measurementTimestamp <= W132_MAX_OFFLINE)
+    if (file.available())
     {
-      w132TempHumidityData.valid = 1;
+      debug("File not avaiable, file: ");
+      debugln(String(STATION_CONFIG_FILE));
+      file.close();
+      debugln("************************************************************");
+      debugln();
+      return false;
+    }
+      
+    l = file.readBytesUntil('\n', lineBuffer, sizeof(lineBuffer));
+    file.close();
+    
+    lineBuffer[l] = 0;
+    debug("Buffer: ");
+    debugln(lineBuffer);
+  */
+  
+    // Deserialize the JSON document
+    // DeserializationError error = deserializeJson(jsonBuffer, lineBuffer);
+    DeserializationError error = deserializeJson(jsonBuffer, file);
+    file.close();
+    
+    if (error)
+    {
+      debug("DeserializationError file: ");
+      debugln(String(STATION_CONFIG_FILE));
+
+      configData.actTimestamp = actTime;
+    
+      #if (WITH_AERIS_AQI > 0)
+        aerisAQIData.valid = 0;
+        aerisAQIData.required = 1;
+        aerisAQIData.measurementTimestamp = 0;
+      #endif
+
+      #if (WITH_OWM_AQI > 0)
+        openweathermapAQIData.valid = 0;
+        openweathermapAQIData.required = 1;
+        openweathermapAQIData.measurementTimestamp = 0;
+      #endif
+      
+      #if (WITH_W174 > 0)
+        w174Data.measurementTimestamp = 0;
+        w174Data.rainCounter = 0;
+        w174Data.rain = 0;
+        w174Data.rainTotal = w174Data.rainCounter * W174_BUCKET_SIZE;
+        w174Data.rainBatteryStatus = 0;
+        w174Data.valid = 0;
+      #endif
+    
+      #if (WITH_W132 > 0)
+        w132TempHumidityData.measurementTimestamp = 0;
+        w132TempHumidityData.temperature = 0;
+        w132TempHumidityData.humidity = 0;
+        w132TempHumidityData.valid = 0;
+    
+        w132WindSpeedData.measurementTimestamp = 0;
+        w132WindSpeedData.windSpeedKmh = 0;
+        w132WindSpeedData.valid = 0;
+      #endif
+      
+      debugln("ConfigData file NOT loaded.");
+    }
+    else
+    {
+      configData.actTimestamp = (int)jsonBuffer["actTimestamp"];
+      debug("Timestamp.............................: ");
+      debugln(configData.actTimestamp);
+    
+      //stationActions = (int)jsonBuffer["stationActions"];
+      //debug("stationActions........................: ");
+      //debugln(stationActions);
+    
+      #if (WITH_AERIS_AQI > 0)
+        valid = false;
+        
+        aerisAQIData.measurementTimestamp = (int)jsonBuffer["aerisAQIData.measurementTimestamp"];
+        debug("Aeris AQI last call Timestamp.........: ");
+        debugln(aerisAQIData.measurementTimestamp);
+
+        valid = (aerisAQIData.measurementTimestamp > 0);
+
+        aerisAQIData.o3 = (float)jsonBuffer["aerisAQIData.o3"];
+        debug("Aeris AQI last o3.....................: ");
+        debugln(aerisAQIData.o3);
+
+        valid = (valid && (aerisAQIData.o3 > 0));
+
+        aerisAQIData.co = (float)jsonBuffer["aerisAQIData.co"];
+        debug("Aeris AQI last co.....................: ");
+        debugln(aerisAQIData.co);
+
+        valid = (valid && (aerisAQIData.co > 0));
+
+        aerisAQIData.no2 = (float)jsonBuffer["aerisAQIData.no2"];
+        debug("Aeris AQI last no2....................: ");
+        debugln(aerisAQIData.no2);
+
+        valid = (valid && (aerisAQIData.no2 > 0));
+
+        aerisAQIData.so2 = (float)jsonBuffer["aerisAQIData.so2"];
+        debug("Aeris AQI last so2....................: ");
+        debugln(aerisAQIData.so2);
+
+        valid = (valid && (aerisAQIData.so2 > 0));
+
+        aerisAQIData.pm2_5 = (float)jsonBuffer["aerisAQIData.pm2_5"];
+        debug("Aeris AQI last pm2_5..................: ");
+        debugln(aerisAQIData.pm2_5);
+
+        valid = (valid && (aerisAQIData.pm2_5 > 0));
+
+        aerisAQIData.pm10_0 = (float)jsonBuffer["aerisAQIData.pm10_0"];
+        debug("Aeris AQI last pm10_0.................: ");
+        debugln(aerisAQIData.pm10_0);
+
+        valid = (valid && (aerisAQIData.pm10_0 > 0));
+
+        if (valid)
+        {
+          aerisAQIData.valid = 1;
+        }
+        else
+        {
+          aerisAQIData.required = 1;
+        }
+      #endif
+
+      #if (WITH_OWM_AQI > 0)
+        valid = false;
+        
+        openweathermapAQIData.measurementTimestamp = (int)jsonBuffer["openweathermapAQIData.measurementTimestamp"];
+        debug("openweathermap AQI last call Timestamp.........: ");
+        debugln(openweathermapAQIData.measurementTimestamp);
+
+        valid = (openweathermapAQIData.measurementTimestamp > 0);
+
+        openweathermapAQIData.co = (float)jsonBuffer["openweathermapAQIData.co"];
+        debug("openweathermap AQI last co.....................: ");
+        debugln(openweathermapAQIData.co);
+
+        valid = (valid && (openweathermapAQIData.co > 0));
+
+        openweathermapAQIData.no = (float)jsonBuffer["openweathermapAQIData.no"];
+        debug("openweathermap AQI last no.....................: ");
+        debugln(openweathermapAQIData.no);
+
+        valid = (valid && (openweathermapAQIData.no > 0));
+
+        openweathermapAQIData.no2 = (float)jsonBuffer["openweathermapAQIData.no2"];
+        debug("openweathermap AQI last no2....................: ");
+        debugln(openweathermapAQIData.no2);
+
+        valid = (valid && (openweathermapAQIData.no2 > 0));
+
+        openweathermapAQIData.o3 = (float)jsonBuffer["openweathermapAQIData.o3"];
+        debug("openweathermap AQI last o3.....................: ");
+        debugln(openweathermapAQIData.o3);
+
+        valid = (valid && (openweathermapAQIData.o3 > 0));
+
+        openweathermapAQIData.so2 = (float)jsonBuffer["openweathermapAQIData.so2"];
+        debug("openweathermap AQI last so2....................: ");
+        debugln(openweathermapAQIData.so2);
+
+        valid = (valid && (openweathermapAQIData.so2 > 0));
+
+        openweathermapAQIData.pm2_5 = (float)jsonBuffer["openweathermapAQIData.pm2_5"];
+        debug("openweathermap AQI last pm2_5..................: ");
+        debugln(openweathermapAQIData.pm2_5);
+
+        valid = (valid && (openweathermapAQIData.pm2_5 > 0));
+
+        openweathermapAQIData.pm10_0 = (float)jsonBuffer["openweathermapAQIData.pm10_0"];
+        debug("openweathermap AQI last pm10_0.................: ");
+        debugln(openweathermapAQIData.pm10_0);
+
+        valid = (valid && (openweathermapAQIData.pm10_0 > 0));
+
+        openweathermapAQIData.nh3 = (float)jsonBuffer["openweathermapAQIData.nh3"];
+        debug("openweathermap AQI last nh3....................: ");
+        debugln(openweathermapAQIData.nh3);
+
+        valid = (valid && (openweathermapAQIData.nh3 > 0));
+
+        if (valid)
+        {
+          openweathermapAQIData.valid = 1;
+        }
+        else
+        {
+          openweathermapAQIData.required = 1;
+        }
+      #endif
+      
+      #if (WITH_W174 > 0)
+        w174Data.measurementTimestamp = (int)jsonBuffer["w174Data.measurementTimestamp"];
+        debug("W174 measurementTimestamp.............: ");
+        debugln(w174Data.measurementTimestamp);
+    
+        w174Data.rainCounter = (int)jsonBuffer["w174Data.rainCounter"];
+        w174Data.rain = 0;
+        w174Data.rainTotal = w174Data.rainCounter * W174_BUCKET_SIZE;
+        debug("W174 rainCounter......................: ");
+        debugln(w174Data.rainCounter);
+    
+        w174Data.rainBatteryStatus = (int)jsonBuffer["w174Data.rainBatteryStatus"];
+        debug("W174 rainBatteryStatus................: ");
+        debugln(w174Data.rainBatteryStatus);
+    
+        w174Data.valid = 1;
+      #endif
+    
+      #if (WITH_W132 > 0)
+        w132TempHumidityData.measurementTimestamp = (int)jsonBuffer["w132TempHumidityData.measurementTimestamp"];
+        debug("W132 TempHumidity measurementTimestamp: ");
+        debugln(w132TempHumidityData.measurementTimestamp);
+    
+        w132TempHumidityData.temperature = (float)jsonBuffer["w132TempHumidityData.temperature"];
+        debug("W132 TempHumidity temperature.........: ");
+        debugln(w132TempHumidityData.temperature);
+    
+        w132TempHumidityData.humidity = (int)jsonBuffer["w132TempHumidityData.humidity"];
+        debug("W132 TempHumidity humidity............: ");
+        debugln(w132TempHumidityData.humidity);
+    
+        if (actTime - w132TempHumidityData.measurementTimestamp <= W132_MAX_OFFLINE)
+        {
+          w132TempHumidityData.valid = 1;
+        }
+    
+        w132WindSpeedData.measurementTimestamp = (int)jsonBuffer["w132WindSpeedData.measurementTimestamp"];
+        debug("W132 WindSpeed measurementTimestamp...: ");
+        debugln(w132WindSpeedData.measurementTimestamp);
+    
+        w132WindSpeedData.windSpeedKmh = (float)jsonBuffer["w132TempHumidityData.windSpeedKmh"];
+        debug("W132 WindSpeed windSpeedKmh...........: ");
+        debugln(w132WindSpeedData.windSpeedKmh);
+    
+        if (actTime - w132WindSpeedData.measurementTimestamp <= W132_MAX_OFFLINE)
+        {
+          w132WindSpeedData.valid = 1;
+        }    
+    
+        debug("Last W132 TempHumidityData valid......: ");
+        debugln(w132TempHumidityData.valid);
+    
+        debug("Last W132 WindSpeedData valid.........: ");
+        debugln(w132WindSpeedData.valid);
+      #endif
+      
+      debugln("ConfigData file loaded.");
     }
 
-    w132WindSpeedData.measurementTimestamp = (int)jsonBuffer["w132WindSpeedData.measurementTimestamp"];
-    debug("W132 WindSpeed measurementTimestamp...: ");
-    debugln(w132WindSpeedData.measurementTimestamp);
-
-    w132WindSpeedData.windSpeedKmh = (float)jsonBuffer["w132TempHumidityData.windSpeedKmh"];
-    debug("W132 WindSpeed windSpeedKmh...........: ");
-    debugln(w132WindSpeedData.windSpeedKmh);
-
-    if (actTime - w132WindSpeedData.measurementTimestamp <= W132_MAX_OFFLINE)
-    {
-      w132WindSpeedData.valid = 1;
-    }    
-
-    debug("Last W174 RainData valid..............: ");
-    debugln(w174Data.valid);
-
-    debug("Last W132 TempHumidityData valid......: ");
-    debugln(w132TempHumidityData.valid);
-
-    debug("Last W132 WindSpeedData valid.........: ");
-    debugln(w132WindSpeedData.valid);
+    debugln("************************************************************");
+    debugln();
+  
   #endif
-
-  debugln("ConfigData file loaded.");
-  debugln("************************************************************");
-  debugln();
 
   return true;
-  
-/*
-  // last actual timestamp
-  String temp_data = file.readStringUntil('\n');  
-  configData.actTimestamp = temp_data.toInt();
-  debug("Timestamp.............................: ");
-  debugln(configData.actTimestamp);
-
-  #if (WITH_W174 > 0)
-    // last W174 measurement timestamp
-    temp_data = "";
-    temp_data = file.readStringUntil('\n');  
-    w174Data.measurementTimestamp = temp_data.toInt();
-    debug("W174 measurementTimestamp.............: ");
-    debugln(w174Data.measurementTimestamp);
-
-    // last W174 rain counter
-    temp_data = "";
-    temp_data = file.readStringUntil('\n');  
-    w174Data.rainCounter = temp_data.toInt();
-    w174Data.rain = 0;
-    w174Data.rainTotal = w174Data.rainCounter * W174_BUCKET_SIZE;
-    debug("W174 rainCounter......................: ");
-    debugln(w174Data.rainCounter);
-
-    // last W174 Battery status
-    temp_data = "";
-    temp_data = file.readStringUntil('\n');  
-    w174Data.rainBatteryStatus = temp_data.toInt();
-    debug("W174 rainBatteryStatus................: ");
-    debugln(w174Data.rainBatteryStatus);
-
-    w174Data.valid = 1;
-  #endif
-
-  #if (WITH_W132 > 0)
-    // last W132 temperature measurement timestamp
-    temp_data = "";
-    temp_data = file.readStringUntil('\n');  
-    w132TempHumidityData.measurementTimestamp = temp_data.toInt();
-    debug("W132 TempHumidity measurementTimestamp: ");
-    debugln(w132TempHumidityData.measurementTimestamp);
-
-    // last W132 last temperature
-    temp_data = "";
-    temp_data = file.readStringUntil('\n');  
-    w132TempHumidityData.temperature = temp_data.toFloat();
-    debug("W132 TempHumidity temperature.........: ");
-    debugln(w132TempHumidityData.temperature);
-
-    // last W132 last humidity
-    temp_data = "";
-    temp_data = file.readStringUntil('\n');  
-    w132TempHumidityData.humidity = temp_data.toInt();
-    debug("W132 TempHumidity humidity............: ");
-    debugln(w132TempHumidityData.humidity);
-
-    if (actTime - w132TempHumidityData.measurementTimestamp <= W132_MAX_OFFLINE)
-    {
-      w132TempHumidityData.valid = 1;
-    }
-
-    // last W132 windSpeed measurement timestamp
-    temp_data = "";
-    temp_data = file.readStringUntil('\n');  
-    w132WindSpeedData.measurementTimestamp = temp_data.toInt();
-    debug("W132 WindSpeed measurementTimestamp...: ");
-    debugln(w132WindSpeedData.measurementTimestamp);
-
-    // last W132 last windSpeed
-    temp_data = "";
-    temp_data = file.readStringUntil('\n');  
-    w132WindSpeedData.windSpeedKmh = temp_data.toFloat();
-    debug("W132 WindSpeed windSpeedKmh...........: ");
-    debugln(w132WindSpeedData.windSpeedKmh);
-
-    if (actTime - w132WindSpeedData.measurementTimestamp <= W132_MAX_OFFLINE)
-    {
-      w132WindSpeedData.valid = 1;
-    }    
-
-    debug("Last W132 TempHumidityData valid......: ");
-    debugln(w132TempHumidityData.valid);
-
-    debug("Last W132 WindSpeedData valid.........: ");
-    debugln(w132WindSpeedData.valid);
-
-  #endif
-  
-  debugln("************************************************************");
-  
-  // Close the file (File's destructor doesn't close the file)
-  file.close();
-  debugln("ConfigData file loaded.");
-  debugln();
-
-*/
 }
 
 //***************************************************************
@@ -1211,208 +1381,194 @@ boolean readConfiguration()
 //***************************************************************
 bool writeConfiguration()
 {
-  debugln("********************* CONFIG WRITE **************************");
+  #if ((WITH_FLASH > 0) || (WITH_SD > 0))
+    debugln("********************* CONFIG WRITE **************************");
 
 
-  #if (WITH_FLASH > 0)
-    SPIFFS.remove(STATION_CONFIG_FILE);
-    File file = SPIFFS.open(STATION_CONFIG_FILE, "w");
-    if (!file)
-    {
-      debugln("Failed to open config file for writing!");
-      errorPublish(String(SYSTEM_SENSOR_ID), "Failed to open config file for writing!", false);
+    #if (WITH_FLASH > 0)
+      SPIFFS.remove(STATION_CONFIG_FILE);
+      File file = SPIFFS.open(STATION_CONFIG_FILE, "w");
+      if (!file)
+      {
+        debugln("Failed to open config file for writing!");
+        errorPublish(String(SYSTEM_SENSOR_ID), "Failed to open config file for writing!", false);
+        debugln("*************************************************************");
+        debugln();
+        return false;
+      }
+    #elif (WITH_SD > 0)
+      sd.remove(STATION_CONFIG_FILE);
+      File file = sd.open(STATION_CONFIG_FILE, O_WRONLY | O_CREAT | O_TRUNC);
+      if (!file)
+      {
+        debugln("Failed to open config file for writing!");
+        errorPublish(String(SYSTEM_SENSOR_ID), "Failed to open config file for writing!", false);
+        debugln("*************************************************************");
+        debugln();
+        return false;
+      }
+    #else
+      debugln("SD/FLASH not configured!");
+      errorPublish(String(SYSTEM_SENSOR_ID), "SD/FLASH not configured!", false);
       debugln("*************************************************************");
       debugln();
       return false;
-    }
-  #elif (WITH_SD > 0)
-    sd.remove(STATION_CONFIG_FILE);
-    File file = sd.open(STATION_CONFIG_FILE, O_WRONLY | O_CREAT | O_TRUNC);
-    if (!file)
-    {
-      debugln("Failed to open config file for writing!");
-      errorPublish(String(SYSTEM_SENSOR_ID), "Failed to open config file for writing!", false);
-      debugln("*************************************************************");
-      debugln();
-      return false;
-    }
-  #else
-    debugln("SD/FLASH not configured!");
-    errorPublish(String(SYSTEM_SENSOR_ID), "SD/FLASH not configured!", false);
-    debugln("*************************************************************");
-    debugln();
-    return false;
-  #endif
+    #endif
 
-  debugln("Write data to config file.");
+    debugln("Write data to config file.");
 
     // Create JsonBuffer
-  StaticJsonDocument<1024> jsonBuffer;
-  unsigned long actTime = getTimestamp();
+    StaticJsonDocument<1024> jsonBuffer;
+    unsigned long actTime = getTimestamp();
 
-  debug("Timestamp.............................: ");
-  debugln(actTime);
-  jsonBuffer["actTimestamp"] = actTime;
+    debug("Timestamp.............................: ");
+    debugln(actTime);
+    jsonBuffer["actTimestamp"] = actTime;
 
-  //debug("stationActions........................: ");
-  //debugln(stationActions);
-  //jsonBuffer["stationActions"] = stationActions;
+    //debug("stationActions........................: ");
+    //debugln(stationActions);
+    //jsonBuffer["stationActions"] = stationActions;
 
-  #if (WITH_W174 > 0)
-    debug("W174 measurementTimestamp.............: ");
-    debugln(w174Data.measurementTimestamp);
-    jsonBuffer["w174Data.measurementTimestamp"] = w174Data.measurementTimestamp;
-    
-    debug("W174 rainCounter......................: ");
-    debugln(w174Data.rainCounter);
-    jsonBuffer["w174Data.rainCounter"] = w174Data.rainCounter;
-    
-    debug("W174 rainBatteryStatus................: ");
-    debugln(w174Data.rainBatteryStatus);
-    jsonBuffer["w174Data.rainBatteryStatus"] = w174Data.rainBatteryStatus;
-  #endif
+    #if (WITH_AERIS_AQI > 0)
+      debug("Aeris AQI measurementTimestamp........: ");
+      debugln(aerisAQIData.measurementTimestamp);
+      jsonBuffer["aerisAQIData.measurementTimestamp"] = aerisAQIData.measurementTimestamp;
 
-  #if (WITH_W132 > 0)
-    //if (w132TempHumidityData.valid > 0)
-    {
-      debug("W132 TempHumidity measurementTimestamp: ");
-      debugln(w132TempHumidityData.measurementTimestamp);
-      jsonBuffer["w132TempHumidityData.measurementTimestamp"] = w132TempHumidityData.measurementTimestamp;
+      debug("Aeris AQI o3..........................: ");
+      debugln(aerisAQIData.o3);
+      jsonBuffer["aerisAQIData.o3"] = aerisAQIData.o3;
+
+      debug("Aeris AQI co..........................: ");
+      debugln(aerisAQIData.co);
+      jsonBuffer["aerisAQIData.co"] = aerisAQIData.co;
+
+      debug("Aeris AQI no2.........................: ");
+      debugln(aerisAQIData.no2);
+      jsonBuffer["aerisAQIData.no2"] = aerisAQIData.no2;
+
+      debug("Aeris AQI so2.........................: ");
+      debugln(aerisAQIData.so2);
+      jsonBuffer["aerisAQIData.so2"] = aerisAQIData.so2;
+
+      debug("Aeris AQI pm2_5.......................: ");
+      debugln(aerisAQIData.pm2_5);
+      jsonBuffer["aerisAQIData.pm2_5"] = aerisAQIData.pm2_5;
+
+      debug("Aeris AQI pm10_0......................: ");
+      debugln(aerisAQIData.pm10_0);
+      jsonBuffer["aerisAQIData.pm10_0"] = aerisAQIData.pm10_0;
+    #endif
+
+    #if (WITH_OWM_AQI > 0)
+      debug("openweathermap AQI measurementTimestamp........: ");
+      debugln(openweathermapAQIData.measurementTimestamp);
+      jsonBuffer["openweathermapAQIData.measurementTimestamp"] = openweathermapAQIData.measurementTimestamp;
+
+      debug("openweathermap AQI co..........................: ");
+      debugln(openweathermapAQIData.co);
+      jsonBuffer["openweathermapAQIData.co"] = openweathermapAQIData.co;
+
+      debug("openweathermap AQI no..........................: ");
+      debugln(openweathermapAQIData.no);
+      jsonBuffer["openweathermapAQIData.no"] = openweathermapAQIData.no;
+
+      debug("openweathermap AQI no2.........................: ");
+      debugln(openweathermapAQIData.no2);
+      jsonBuffer["openweathermapAQIData.no2"] = openweathermapAQIData.no2;
+
+      debug("openweathermap AQI o3..........................: ");
+      debugln(openweathermapAQIData.o3);
+      jsonBuffer["openweathermapAQIData.o3"] = openweathermapAQIData.o3;
+
+      debug("openweathermap AQI so2.........................: ");
+      debugln(openweathermapAQIData.so2);
+      jsonBuffer["openweathermapAQIData.so2"] = openweathermapAQIData.so2;
+
+      debug("openweathermap AQI pm2_5.......................: ");
+      debugln(openweathermapAQIData.pm2_5);
+      jsonBuffer["openweathermapAQIData.pm2_5"] = openweathermapAQIData.pm2_5;
+
+      debug("openweathermap AQI pm10_0......................: ");
+      debugln(openweathermapAQIData.pm10_0);
+      jsonBuffer["openweathermapAQIData.pm10_0"] = openweathermapAQIData.pm10_0;
+
+      debug("openweathermap AQI nh3.........................: ");
+      debugln(openweathermapAQIData.nh3);
+      jsonBuffer["openweathermapAQIData.nh3"] = openweathermapAQIData.nh3;
+    #endif
+
+    #if (WITH_W174 > 0)
+      debug("W174 measurementTimestamp.............: ");
+      debugln(w174Data.measurementTimestamp);
+      jsonBuffer["w174Data.measurementTimestamp"] = w174Data.measurementTimestamp;
       
-      debug("W132 TempHumidity temperature.........: ");
-      debugln(w132TempHumidityData.temperature);
-      jsonBuffer["w132TempHumidityData.temperature"] = w132TempHumidityData.temperature;
+      debug("W174 rainCounter......................: ");
+      debugln(w174Data.rainCounter);
+      jsonBuffer["w174Data.rainCounter"] = w174Data.rainCounter;
       
-      debug("W132 TempHumidity humidity............: ");
-      debugln(w132TempHumidityData.humidity);
-      jsonBuffer["w132TempHumidityData.humidity"] = w132TempHumidityData.humidity;
-    }
+      debug("W174 rainBatteryStatus................: ");
+      debugln(w174Data.rainBatteryStatus);
+      jsonBuffer["w174Data.rainBatteryStatus"] = w174Data.rainBatteryStatus;
+    #endif
 
-    //if (w132WindSpeedData.valid > 0)
+    #if (WITH_W132 > 0)
+      //if (w132TempHumidityData.valid > 0)
+      {
+        debug("W132 TempHumidity measurementTimestamp: ");
+        debugln(w132TempHumidityData.measurementTimestamp);
+        jsonBuffer["w132TempHumidityData.measurementTimestamp"] = w132TempHumidityData.measurementTimestamp;
+        
+        debug("W132 TempHumidity temperature.........: ");
+        debugln(w132TempHumidityData.temperature);
+        jsonBuffer["w132TempHumidityData.temperature"] = w132TempHumidityData.temperature;
+        
+        debug("W132 TempHumidity humidity............: ");
+        debugln(w132TempHumidityData.humidity);
+        jsonBuffer["w132TempHumidityData.humidity"] = w132TempHumidityData.humidity;
+      }
+  
+      //if (w132WindSpeedData.valid > 0)
+      {
+        debug("W132 WindSpeed measurementTimestamp...: ");
+        debugln(w132WindSpeedData.measurementTimestamp);
+        jsonBuffer["w132WindSpeedData.measurementTimestamp"] = w132WindSpeedData.measurementTimestamp;
+        
+        debug("W132 WindSpeed windSpeedKmh...........: ");
+        debugln(w132WindSpeedData.windSpeedKmh);
+        jsonBuffer["w132WindSpeedData.windSpeedKmh"] = w132WindSpeedData.windSpeedKmh;
+      }
+  
+      debug("Last W132 TempHumidityData valid......: ");
+      debugln(w132TempHumidityData.valid);
+  
+      debug("Last W132 WindSpeedData valid.........: ");
+      debugln(w132WindSpeedData.valid);
+    #endif
+  
+    //char saveJson[1024];
+    //serializeJson(jsonBuffer, saveJson);
+  
+    if (serializeJson(jsonBuffer, file) == 0)
     {
-      debug("W132 WindSpeed measurementTimestamp...: ");
-      debugln(w132WindSpeedData.measurementTimestamp);
-      jsonBuffer["w132WindSpeedData.measurementTimestamp"] = w132WindSpeedData.measurementTimestamp;
-      
-      debug("W132 WindSpeed windSpeedKmh...........: ");
-      debugln(w132WindSpeedData.windSpeedKmh);
-      jsonBuffer["w132WindSpeedData.windSpeedKmh"] = w132WindSpeedData.windSpeedKmh;
+      debug("Config could not be saved to file: ");
+      debugln(String(STATION_CONFIG_FILE));
+      debugln("*************************************************************");
+      debugln();
+      return false;
     }
-
-    debug("Last W74 RainData valid...............: ");
-    debugln(w174Data.valid);
-
-    debug("Last W132 TempHumidityData valid......: ");
-    debugln(w132TempHumidityData.valid);
-
-    debug("Last W132 WindSpeedData valid.........: ");
-    debugln(w132WindSpeedData.valid);
-  #endif
-
-  //char saveJson[1024];
-  //serializeJson(jsonBuffer, saveJson);
-
-  if (serializeJson(jsonBuffer, file) == 0)
-  {
-    debug("Config could not be saved to file: ");
-    debugln(String(STATION_CONFIG_FILE));
-    debugln("*************************************************************");
-    debugln();
-    return false;
-  }
-  else
-  {
-    file.close();
-    debug("Config saved to file: ");
-    debugln(String(STATION_CONFIG_FILE));
-    debugln("*************************************************************");
-    debugln();
-    return true;    
-  }
-
-  /*
-  if(file.println(saveJson))
-  {
-    file.println("\n");
-    file.close();
-    debug("Config saved to file: ");
-    debugln(String(STATION_CONFIG_FILE));
-    debugln("*************************************************************");
-    debugln();
-    return true;
-  }
-  else
-  {
-    file.close();
-    debug("Config could not be saved to file: ");
-    debugln(String(STATION_CONFIG_FILE));
-    debugln("*************************************************************");
-    debugln();
-    return false;
-  }  
-*/
-
-/*  
-  debug("Timestamp.............................: ");
-  debugln(actTime);
-  file.println(actTime);
-
-  #if (WITH_W174 > 0)
-    debug("W174 measurementTimestamp.............: ");
-    debugln(w174Data.measurementTimestamp);
-    debug("W174 rainCounter......................: ");
-    debugln(w174Data.rainCounter);
-    debug("W174 rainBatteryStatus................: ");
-    debugln(w174Data.rainBatteryStatus);
-
-    file.println(w174Data.measurementTimestamp);
-    file.println(w174Data.rainCounter);
-    file.println(w174Data.rainBatteryStatus);
-  #endif
-
-  #if (WITH_W132 > 0)
-    //if (w132TempHumidityData.valid > 0)
+    else
     {
-      debug("W132 TempHumidity measurementTimestamp: ");
-      debugln(w132TempHumidityData.measurementTimestamp);
-      debug("W132 TempHumidity temperature.........: ");
-      debugln(w132TempHumidityData.temperature);
-      debug("W132 TempHumidity humidity............: ");
-      debugln(w132TempHumidityData.humidity);
-
-      file.println(w132TempHumidityData.measurementTimestamp);
-      file.println(w132TempHumidityData.temperature);
-      file.println(w132TempHumidityData.humidity);
+      file.close();
+      debug("Config saved to file: ");
+      debugln(String(STATION_CONFIG_FILE));
+      debugln("*************************************************************");
+      debugln();
+      return true;    
     }
-
-    //if (w132WindSpeedData.valid > 0)
-    {
-      debug("W132 WindSpeed measurementTimestamp...: ");
-      debugln(w132WindSpeedData.measurementTimestamp);
-      debug("W132 WindSpeed windSpeedKmh...........: ");
-      debugln(w132WindSpeedData.windSpeedKmh);
-
-      file.println(w132WindSpeedData.measurementTimestamp);
-      file.println(w132WindSpeedData.windSpeedKmh);
-    }
-
-    debug("Last W132 TempHumidityData valid......: ");
-    debugln(w132TempHumidityData.valid);
-
-    debug("Last W132 WindSpeedData valid.........: ");
-    debugln(w132WindSpeedData.valid);
-    
-  #endif
-
-  file.close();
-
-  debugln("*************************************************************");
-
-  //debugln("ConfigData saved to file.");
-  debugln();
-
+  
+  #endif  
+  
   return true;
-*/
 }
 
 //***************************************************************
@@ -1420,7 +1576,7 @@ bool writeConfiguration()
 //***************************************************************
 boolean printFile(String filename)
 {
-  #if (WITH_DEBUG_TO_SERIAL > 0)
+  #if (WITH_DEBUG_TO_SERIAL > 0 && ((WITH_FLASH > 0) || (WITH_SD > 0)))
     debugln();
     debugln("************************* PRINT FILE *******************************");
     debug("Print File: ");
@@ -1550,7 +1706,7 @@ boolean wifiConnect()
   // Disable the WiFi persistence.  The ESP8266 will not load and save WiFi settings in the flash memory.
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
-  WiFi.config(ip, gateway, subnet);
+  WiFi.config(ip, gateway, subnet, dns1, dns2);
   WiFi.hostname(STATION_ID);
   if (rtcValid)
   {
@@ -1590,9 +1746,15 @@ boolean wifiConnect()
   else
   {
     debugln();
-    debug("WiFi connected. ");
-    debug("IP address: ");
+    debugln("WiFi connected.");
+    debug("IP address..........: ");
     debugln(WiFi.localIP());
+    
+    // Signaalsterkte.
+    long rssi = WiFi.RSSI();
+    debug("Signal Staerke(RSSI): ");
+    debug(rssi);
+    debug(" dBm");
     debugln();
     
     // Write current connection info back to RTC
@@ -6184,6 +6346,538 @@ boolean as3935miWeewxUploadResults()
 }
 
 //***************************************************************
+// Aeris AQI API setup
+//***************************************************************
+void aerisAQISetup()
+{
+  #if WITH_AERIS_AQI > 0
+    debugln("Initialize Aeris AQI Data.");
+    aerisAQIData.received = 0;
+    aerisAQIData.published = 0;
+    aerisAQIData.debug = "";
+
+    // Check last API Call
+    if (aerisAQIData.required < 1)
+    {
+      if ((getTimestamp() - aerisAQIData.measurementTimestamp) > AERIS_AQI_TIMEOUT)
+      {
+        aerisAQIData.debug = "Aeris AQI data required! ";
+        aerisAQIData.required = 1;
+      }
+      else
+      {
+        aerisAQIData.debug = "Aeris AQI data not required. ";
+      }
+    }
+    else
+    {
+      aerisAQIData.debug = "Aeris AQI data required. ";
+    }
+    debugln(aerisAQIData.debug);
+  #endif
+}
+
+//***************************************************************
+// Aeris AQI API print data to serial
+//***************************************************************
+void aerisAQIPrintResults()
+{
+  #if (WITH_AERIS_AQI > 0 && WITH_DEBUG_TO_SERIAL > 0 && WITH_DEBUG_SENSORS > 0)
+
+    debugln();
+    debugln("****************** AERIS AQI API CALL ***********************");
+
+    debug("Debug: ");
+    debugln(aerisAQIData.debug);
+
+    if (aerisAQIData.received > 0 || aerisAQIData.valid > 0)
+    {
+      debug("ozone (o3)..............: ");
+      debug(aerisAQIData.o3);
+      debugln(" µm/m3");
+      debug("partical matter (<2.5µm): ");
+      debug(aerisAQIData.pm2_5);
+      debugln(" µm/m3");
+      debug("partical matter (<10µm).: ");
+      debug(aerisAQIData.pm10_0);
+      debugln(" µm/m3");
+      debug("cabon monoxide (co).....: ");
+      debug(aerisAQIData.co);
+      debugln(" µm/m3");
+      debug("nitrogen dioxide (no2)..: ");
+      debug(aerisAQIData.no2);
+      debugln(" µm/m3");
+      debug("sulfer dioxide (so2)....: ");
+      debug(aerisAQIData.so2);
+      debugln(" µm/m3");
+    }
+
+    debugln("*************************************************************");
+    debugln();
+  #endif
+}
+
+//***************************************************************
+// Aeris AQI API publish data to broker
+//***************************************************************
+boolean aerisAQIPublishResults()
+{
+  #if (WITH_BROKER > 0 && WITH_AERIS_AQI > 0)
+    if (aerisAQIData.received > 0 || aerisAQIData.valid > 0)
+    {
+      // Create JsonBuffer
+      StaticJsonDocument<512> jsonBuffer;
+      
+      jsonBuffer["dateTime"] = aerisAQIData.measurementTimestamp;
+      jsonBuffer["o3"] = round(aerisAQIData.o3 * 100) / 100;
+      jsonBuffer["pm2_5"] = round(aerisAQIData.pm2_5 * 100) / 100;
+      jsonBuffer["pm10_0"] = round(aerisAQIData.pm10_0 * 100) / 100;
+      jsonBuffer["co"] = round(aerisAQIData.co * 100) / 100;
+      jsonBuffer["no2"] = round(aerisAQIData.no2 * 100) / 100;
+      jsonBuffer["so2"] = round(aerisAQIData.so2 * 100) / 100;
+      
+      char publishJson[512];
+      serializeJson(jsonBuffer, publishJson);
+      
+      if(sensorPublish(String(AERIS_AQI_SENSOR_ID), publishJson, false))
+      {
+        aerisAQIData.published = 1;
+        return true;
+      }
+      
+      return false;
+    }
+  #endif
+
+  return true;
+}
+
+//***************************************************************
+// AERIS AQI API Call
+//***************************************************************
+String aerisAQIAPICall()
+{
+  #if (WITH_AERIS_AQI > 0)
+    String payload = "";
+  
+    std::unique_ptr<BearSSL::WiFiClientSecure>client(new BearSSL::WiFiClientSecure);
+    
+    client->setFingerprint(AERIS_HTTPS_FINGERPRINT);
+
+    debug("[HTTPS] API: ");
+    debugln(AERIS_AQI_HTTPS_URL);
+    
+    // start connection and send HTTP header
+    debugln("[HTTPS] begin...");
+    if (aerisHTTPS.begin(*client, AERIS_AQI_HTTPS_URL))
+    {
+      debugln("[HTTPS] GET...");
+      aerisHTTPS.addHeader("Content-Type", "application/json");
+      int httpCode = aerisHTTPS.GET();
+
+      // httpCode will be negative on error
+      if (httpCode > 0)
+      {
+        // HTTP header has been send and Server response header has been handled
+        debugln("[HTTPS] GET... OK");
+        debug("[HTTPS] Code: ");
+        debugln(httpCode);
+
+        // file found at server
+        if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
+        {
+          payload = aerisHTTPS.getString();
+          debug("[HTTPS] Payload: ");
+          debugln(payload);
+        }        
+      }
+      else
+      {
+        aerisAQIData.debug = aerisAQIData.debug + "[HTTPS] GET... failed! ";
+        aerisAQIData.debug = aerisAQIData.debug + "Error: " + aerisHTTPS.errorToString(httpCode).c_str() + " ";
+        debugln(aerisAQIData.debug);
+      }
+
+      aerisHTTPS.end();
+    }
+    else
+    {
+      aerisAQIData.debug = aerisAQIData.debug + "[HTTPS] Unable to connect! ";
+      debugln(aerisAQIData.debug);
+    }
+
+    return payload;
+  #endif
+
+/*
+    // WifiClientSecure Code Example
+    
+    WiFiClientSecure aerisClient;
+    aerisClient.setFingerprint(AERIS_FINGERPRINT);
+    debugln("Connect to host " + String(AERIS_API_HOST) + " ...");
+    if (!aerisClient.connect(AERIS_API_HOST, AERIS_API_HTTPS_PORT))
+    {
+      debugln("Connection failed!");
+      return false;
+    }
+    debugln("Connection ok.");
+
+    debugln("Checking host certificates ...");
+    if (!aerisClient.verify(AERIS_FINGERPRINT, AERIS_API_HOST))
+    {
+      debugln("Host certificate doesn't match!");
+      return false;
+    } 
+    debugln("Host certificate matches.");
+
+    debug("requesting URL: ");
+    debugln(AERIS_AQI_URL);
+
+    aerisClient.print(String("GET ") + AERIS_AQI_URL + " HTTP/1.1\r\n" +
+               "Host: " + AERIS_API_HOST + "\r\n" +
+               "User-Agent: ESP8266\r\n" +
+               "Pragma: no-cache\r\n" + 
+               "Cache-Control: no-cache\r\n" + 
+               "Accept: text/html,application/json\r\n" +
+               "Connection: close\r\n\r\n");
+
+    debugln("Request sent");
+
+    String line = aerisClient.readStringUntil('\n');
+    if (line != "HTTP/1.1 200 OK\r")
+    {
+      debug("Unexpected response: ");
+      debugln(line);
+    }
+    else
+    {
+      debugln("headers received");
+    }
+
+    if (!aerisClient.find("\r\n\r\n"))
+    {
+      debug("Could't find end of header, invalid response!");
+    }
+
+    //char line[] = "{\"success\":true,\"error\":null,\"response\":[{\"id\":null,\"loc\":{\"lat\":49.63333,\"long\":12.06667},\"place\":{\"name\":\"weiherhammer\",\"state\":\"02\",\"country\":\"de\"},\"periods\":[{\"dateTimeISO\":\"2021-02-03T16:00:00+01:00\",\"timestamp\":1612364400,\"aqi\":27,\"category\":\"good\",\"color\":\"00E400\",\"method\":\"airnow\",\"dominant\":\"o3\",\"pollutants\":[{\"type\":\"o3\",\"name\":\"ozone\",\"valuePPB\":30,\"valueUGM3\":60,\"aqi\":27,\"category\":\"good\",\"color\":\"00E400\"},{\"type\":\"pm2.5\",\"name\":\"particle matter (<2.5µm)\",\"valuePPB\":null,\"valueUGM3\":4.9,\"aqi\":20,\"category\":\"good\",\"color\":\"00E400\"},{\"type\":\"pm10\",\"name\":\"particle matter (<10µm)\",\"valuePPB\":null,\"valueUGM3\":7.5,\"aqi\":7,\"category\":\"good\",\"color\":\"00E400\"},{\"type\":\"co\",\"name\":\"carbon monoxide\",\"valuePPB\":120,\"valueUGM3\":137,\"aqi\":1,\"category\":\"good\",\"color\":\"00E400\"},{\"type\":\"no2\",\"name\":\"nitrogen dioxide\",\"valuePPB\":4,\"valueUGM3\":8.836,\"aqi\":4,\"category\":\"good\",\"color\":\"00E400\"},{\"type\":\"so2\",\"name\":\"sulfur dioxide\",\"valuePPB\":0,\"valueUGM3\":1.572,\"aqi\":0,\"category\":\"good\",\"color\":\"00E400\"}]}],\"profile\":{\"tz\":\"Europe\/Berlin\",\"sources\":[{\"name\":\"CAMS\"}],\"stations\":null}}]}";
+    DynamicJsonDocument jsonBuffer(2048);
+
+    // Deserialize the JSON document
+    DeserializationError error = deserializeJson(jsonBuffer, resBody);
+
+    if (error)
+    {
+      debugln("Error decoding response from API!.");
+      debugln(error.c_str());
+    }
+    else
+    {
+      String value = jsonBuffer["response"][0]["place"]["name"];
+      debugln(value);
+      float o3 = (float)jsonBuffer["response"][0]["periods"][0]["pollutants"][0]["valueUGM3"];
+      debugln("Ozone: " + String(o3));
+    }
+*/
+
+
+}
+
+//***************************************************************
+// AERIS AQI Data
+//***************************************************************
+boolean aerisAQIGetResults()
+{
+  #if (WITH_AERIS_AQI > 0)
+
+    if (aerisAQIData.required > 0)
+    {
+      String payload = aerisAQIAPICall();
+      if (payload != "")
+      {
+        DynamicJsonDocument jsonBuffer(2048);
+        // Deserialize the JSON document
+        DeserializationError error = deserializeJson(jsonBuffer, payload);
+
+        if (!error)
+        {
+          bool success = jsonBuffer["success"]; // true?
+
+          if (success)
+          {
+            aerisAQIData.required = 0;
+            aerisAQIData.valid = 1;
+            aerisAQIData.received = 1;
+            aerisAQIData.measurementTimestamp = getTimestamp();
+    
+            // AQI
+            aerisAQIData.aqi  = jsonBuffer["response"][0]["periods"][0]["aqi"];
+
+            // Ozone
+            aerisAQIData.o3     = jsonBuffer["response"][0]["periods"][0]["pollutants"][0]["valueUGM3"];
+            // Particulate matter smaller than 2.5 micrometers
+            aerisAQIData.pm2_5  = jsonBuffer["response"][0]["periods"][0]["pollutants"][1]["valueUGM3"];
+            // Particulate matter smaller than 10 micrometers
+            aerisAQIData.pm10_0 = jsonBuffer["response"][0]["periods"][0]["pollutants"][2]["valueUGM3"];
+            // Carbon monoxide
+            aerisAQIData.co     = jsonBuffer["response"][0]["periods"][0]["pollutants"][3]["valueUGM3"];
+            // Nitrogen dioxide
+            aerisAQIData.no2    = jsonBuffer["response"][0]["periods"][0]["pollutants"][4]["valueUGM3"];
+            // Sulfur dioxide
+            aerisAQIData.so2    = jsonBuffer["response"][0]["periods"][0]["pollutants"][5]["valueUGM3"];
+
+            aerisAQIData.debug  = aerisAQIData.debug + "Ok ";
+          }
+          else
+          {
+            aerisAQIData.debug = aerisAQIData.debug + "Error in response from Aeris AQI API! ";
+            String error = jsonBuffer["error"];
+            aerisAQIData.debug = aerisAQIData.debug + "Error: " + error + " ";
+            debugln(aerisAQIData.debug);
+          }
+        }
+        else
+        {
+          aerisAQIData.debug = aerisAQIData.debug + "Error decoding Json response from Aeris AQI API! ";
+          aerisAQIData.debug = aerisAQIData.debug + "Error: " + error.c_str() + " ";
+          debugln(aerisAQIData.debug);
+        }
+      }
+      else
+      {
+        aerisAQIData.debug = aerisAQIData.debug + "Error: Payload is empty! ";
+        debugln(aerisAQIData.debug);
+      }
+    }
+
+  #endif  
+}
+
+//***************************************************************
+// openweathermap AQI API setup
+//***************************************************************
+void openweathermapAQISetup()
+{
+  #if WITH_OWM_AQI > 0
+    debugln("Initialize openweathermap AQI Data.");
+    openweathermapAQIData.received = 0;
+    openweathermapAQIData.published = 0;
+    openweathermapAQIData.debug = "";
+
+    // Check last API Call
+    if (openweathermapAQIData.required < 1)
+    {
+      if ((getTimestamp() - openweathermapAQIData.measurementTimestamp) > OWM_AQI_TIMEOUT)
+      {
+        openweathermapAQIData.debug = "openweathermap AQI data required! ";
+        openweathermapAQIData.required = 1;
+      }
+      else
+      {
+        openweathermapAQIData.debug = "openweathermap AQI data not required. ";
+      }
+    }
+    else
+    {
+      openweathermapAQIData.debug = "openweathermap AQI data required. ";
+    }
+    debugln(openweathermapAQIData.debug);
+  #endif
+}
+
+//***************************************************************
+// openweathermap AQI API print data to serial
+//***************************************************************
+void openweathermapAQIPrintResults()
+{
+  #if (WITH_OWM_AQI > 0 && WITH_DEBUG_TO_SERIAL > 0 && WITH_DEBUG_SENSORS > 0)
+
+    debugln();
+    debugln("************* openweathermap AQI API CALL *******************");
+
+    debug("Debug: ");
+    debugln(openweathermapAQIData.debug);
+
+    if (openweathermapAQIData.received > 0 || openweathermapAQIData.valid > 0)
+    {
+      debug("Carbon monoxide (CO).............: ");
+      debug(openweathermapAQIData.co);
+      debugln(" µm/m3");
+      debug("Nitrogen monoxide (NO)...........: ");
+      debug(openweathermapAQIData.no);
+      debugln(" µm/m3");
+      debug("Nitrogen dioxide (NO2)...........: ");
+      debug(openweathermapAQIData.no2);
+      debugln(" µm/m3");
+      debug("Ozone (O3).......................: ");
+      debug(openweathermapAQIData.o3);
+      debugln(" µm/m3");
+      debug("Sulphur dioxide (SO2)............: ");
+      debug(openweathermapAQIData.so2);
+      debugln(" µm/m3");
+      debug("Fine particals matter (<2.5µm)...: ");
+      debug(openweathermapAQIData.pm2_5);
+      debugln(" µm/m3");
+      debug("Coarse particulate matter (<10µm): ");
+      debug(openweathermapAQIData.pm10_0);
+      debugln(" µm/m3");
+      debug("Ammonia (NH3)....................: ");
+      debug(openweathermapAQIData.nh3);
+      debugln(" µm/m3");
+    }
+
+    debugln("*************************************************************");
+    debugln();
+  #endif
+}
+
+//***************************************************************
+// openweathermap AQI API publish data to broker
+//***************************************************************
+boolean openweathermapAQIPublishResults()
+{
+  #if (WITH_BROKER > 0 && WITH_OWM_AQI > 0)
+    if (openweathermapAQIData.received > 0 || openweathermapAQIData.valid > 0)
+    {
+      // Create JsonBuffer
+      StaticJsonDocument<512> jsonBuffer;
+      
+      jsonBuffer["dateTime"] = openweathermapAQIData.measurementTimestamp;
+      jsonBuffer["co"] = round(openweathermapAQIData.co * 100) / 100;
+      jsonBuffer["no"] = round(openweathermapAQIData.no * 100) / 100;
+      jsonBuffer["no2"] = round(openweathermapAQIData.no2 * 100) / 100;
+      jsonBuffer["o3"] = round(openweathermapAQIData.o3 * 100) / 100;
+      jsonBuffer["so2"] = round(openweathermapAQIData.so2 * 100) / 100;
+      jsonBuffer["pm2_5"] = round(openweathermapAQIData.pm2_5 * 100) / 100;
+      jsonBuffer["pm10_0"] = round(openweathermapAQIData.pm10_0 * 100) / 100;
+      jsonBuffer["nh3"] = round(openweathermapAQIData.nh3 * 100) / 100;
+      
+      char publishJson[512];
+      serializeJson(jsonBuffer, publishJson);
+      
+      if(sensorPublish(String(OWM_AQI_SENSOR_ID), publishJson, false))
+      {
+        openweathermapAQIData.published = 1;
+        return true;
+      }
+      
+      return false;
+    }
+  #endif
+
+  return true;
+}
+
+//***************************************************************
+// openweathermap AQI API Call
+//***************************************************************
+String openweathermapAQIAPICall()
+{
+  #if (WITH_OWM_AQI > 0)
+    String payload = "";
+
+    debug("[HTTP] API: ");
+    debugln(OWM_AQI_HTTP_URL);
+    
+    // start connection and send HTTP header
+    debugln("[HTTP] begin...");
+    if (openweathermapHTTP.begin(OWM_AQI_HTTP_URL))
+    {
+      debugln("[HTTP] GET...");
+      openweathermapHTTP.addHeader("Content-Type", "application/json");
+      int httpCode = openweathermapHTTP.GET();
+
+      // httpCode will be negative on error
+      if (httpCode > 0)
+      {
+        // HTTP header has been send and Server response header has been handled
+        debugln("[HTTP] GET... OK");
+        debug("[HTTP] Code: ");
+        debugln(httpCode);
+
+        // file found at server
+        if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
+        {
+          payload = openweathermapHTTP.getString();
+          debug("[HTTP] Payload: ");
+          debugln(payload);
+        }        
+      }
+      else
+      {
+        openweathermapAQIData.debug = openweathermapAQIData.debug + "[HTTP] GET... failed! ";
+        openweathermapAQIData.debug = openweathermapAQIData.debug + "Error: " + openweathermapHTTP.errorToString(httpCode).c_str() + " ";
+        debugln(openweathermapAQIData.debug);
+      }
+
+      openweathermapHTTP.end();
+    }
+    else
+    {
+      openweathermapAQIData.debug = openweathermapAQIData.debug + "[HTTP] Unable to connect! ";
+      debugln(openweathermapAQIData.debug);
+    }
+
+    return payload;
+  #endif
+
+  return "";
+}
+
+//***************************************************************
+// openweathermap AQI Data
+//***************************************************************
+boolean openweathermapAQIGetResults()
+{
+  #if (WITH_OWM_AQI > 0)
+
+    if (openweathermapAQIData.required > 0)
+    {
+      String payload = openweathermapAQIAPICall();
+      if (payload != "")
+      {
+        DynamicJsonDocument jsonBuffer(2048);
+        // Deserialize the JSON document
+        DeserializationError error = deserializeJson(jsonBuffer, payload);
+
+        if (!error)
+        {
+          openweathermapAQIData.required = 0;
+          openweathermapAQIData.valid = 1;
+          openweathermapAQIData.received = 1;
+          openweathermapAQIData.measurementTimestamp = getTimestamp();
+  
+          // AQI
+          openweathermapAQIData.aqi  = jsonBuffer["list"][0]["main"]["aqi"];
+
+          openweathermapAQIData.co     = jsonBuffer["list"][0]["components"]["co"];
+          openweathermapAQIData.no     = jsonBuffer["list"][0]["components"]["no"];
+          openweathermapAQIData.no2    = jsonBuffer["list"][0]["components"]["no2"];
+          openweathermapAQIData.o3     = jsonBuffer["list"][0]["components"]["o3"];
+          openweathermapAQIData.so2    = jsonBuffer["list"][0]["components"]["so2"];
+          openweathermapAQIData.pm2_5  = jsonBuffer["list"][0]["components"]["pm2_5"];
+          openweathermapAQIData.pm10_0 = jsonBuffer["list"][0]["components"]["pm10"];
+          openweathermapAQIData.nh3    = jsonBuffer["list"][0]["components"]["nh3"];
+
+          openweathermapAQIData.debug  = openweathermapAQIData.debug + "Ok ";
+        }
+        else
+        {
+          openweathermapAQIData.debug = openweathermapAQIData.debug + "Error decoding Json response from openweathermap AQI API! ";
+          openweathermapAQIData.debug = openweathermapAQIData.debug + "Error: " + error.c_str() + " ";
+          debugln(openweathermapAQIData.debug);
+        }
+      }
+      else
+      {
+        openweathermapAQIData.debug = openweathermapAQIData.debug + "Error: Payload is empty! ";
+        debugln(openweathermapAQIData.debug);
+      }
+    }
+
+  #endif  
+}
+
+//***************************************************************
 // Returns sleep seconds for deepsleep depends on actual hour
 //***************************************************************
 unsigned int getSleepSeconds()
@@ -6300,6 +6994,47 @@ boolean loopWeewxUploadResults()
       WeeWX_URL += round(bme280Data.pressure * 100) /100;
       WeeWX_URL += "&solar_heatindex=";
       WeeWX_URL += round(bme280Data.heatindex * 100) / 100;
+
+      #if (WITH_AERIS_AQI > 0)
+        if (aerisAQIData.received > 0 || aerisAQIData.valid > 0)
+        {
+          WeeWX_URL += "&solar_o3=";
+          WeeWX_URL += round(aerisAQIData.o3 * 100) / 100;
+          WeeWX_URL += "&solar_pm2_5=";
+          WeeWX_URL += round(aerisAQIData.pm2_5 * 100) / 100;
+          WeeWX_URL += "&solar_pm10_0=";
+          WeeWX_URL += round(aerisAQIData.pm10_0 * 100) / 100;
+          WeeWX_URL += "&solar_co=";
+          WeeWX_URL += round(aerisAQIData.co * 100) / 100;
+          WeeWX_URL += "&solar_no2=";
+          WeeWX_URL += round(aerisAQIData.no2 * 100) / 100;
+          WeeWX_URL += "&solar_so2=";
+          WeeWX_URL += round(aerisAQIData.so2 * 100) / 100;
+        }
+      #endif
+
+      #if (WITH_OWM_AQI > 0)
+        if (openweathermapAQIData.received > 0 || openweathermapAQIData.valid > 0)
+        {
+          WeeWX_URL += "&solar_co=";
+          WeeWX_URL += round(openweathermapAQIData.co * 100) / 100;
+          WeeWX_URL += "&solar_no=";
+          WeeWX_URL += round(openweathermapAQIData.no * 100) / 100;
+          WeeWX_URL += "&solar_no2=";
+          WeeWX_URL += round(openweathermapAQIData.no2 * 100) / 100;
+          WeeWX_URL += "&solar_o3=";
+          WeeWX_URL += round(openweathermapAQIData.o3 * 100) / 100;
+          WeeWX_URL += "&solar_so2=";
+          WeeWX_URL += round(openweathermapAQIData.so2 * 100) / 100;
+          WeeWX_URL += "&solar_pm2_5=";
+          WeeWX_URL += round(openweathermapAQIData.pm2_5 * 100) / 100;
+          WeeWX_URL += "&solar_pm10_0=";
+          WeeWX_URL += round(openweathermapAQIData.pm10_0 * 100) / 100;
+          WeeWX_URL += "&solar_nh3=";
+          WeeWX_URL += round(openweathermapAQIData.nh3 * 100) / 100;
+        }
+      #endif
+      
       WeeWX_URL += "&solar_stationVoltage=";
       WeeWX_URL += round(voltageData.stationVoltage * 100) / 100;
       WeeWX_URL += "&softwaretype=SolarWeatherStation";
@@ -6545,7 +7280,33 @@ boolean loopPublishResults()
         jsonBuffer["gas"] = round(bme680Data.gas * 100) / 100;
         jsonBuffer["approxAltitude"] = round(bme680Data.approxAltitude * 100) / 100;
       #endif
-  
+
+      #if (WITH_AERIS_AQI > 0)
+        if (aerisAQIData.received > 0 || aerisAQIData.valid > 0)
+        {
+          jsonBuffer["o3"] = round(aerisAQIData.o3 * 100) / 100;
+          jsonBuffer["pm2_5"] = round(aerisAQIData.pm2_5 * 100) / 100;
+          jsonBuffer["pm10_0"] = round(aerisAQIData.pm10_0 * 100) / 100;
+          jsonBuffer["co"] = round(aerisAQIData.co * 100) / 100;
+          jsonBuffer["no2"] = round(aerisAQIData.no2 * 100) / 100;
+          jsonBuffer["so2"] = round(aerisAQIData.so2 * 100) / 100;
+        }
+      #endif  
+
+      #if (WITH_OWM_AQI > 0)
+        if (openweathermapAQIData.received > 0 || openweathermapAQIData.valid > 0)
+        {
+          jsonBuffer["co"] = round(openweathermapAQIData.co * 100) / 100;
+          jsonBuffer["no"] = round(openweathermapAQIData.no * 100) / 100;
+          jsonBuffer["no2"] = round(openweathermapAQIData.no2 * 100) / 100;
+          jsonBuffer["o3"] = round(openweathermapAQIData.o3 * 100) / 100;
+          jsonBuffer["so2"] = round(openweathermapAQIData.so2 * 100) / 100;
+          jsonBuffer["pm2_5"] = round(openweathermapAQIData.pm2_5 * 100) / 100;
+          jsonBuffer["pm10_0"] = round(openweathermapAQIData.pm10_0 * 100) / 100;
+          jsonBuffer["nh3"] = round(openweathermapAQIData.nh3 * 100) / 100;
+        }
+      #endif  
+
       #if (WITH_VOLTAGE > 0)
         jsonBuffer["stationVoltage"] = round(voltageData.stationVoltage * 100) / 100;
       #endif
@@ -6843,6 +7604,18 @@ void setup()
   mhrdSetup();
   mhrdPrintResults();
   mhrdPublishResults();
+
+  // Aeris Weather AQI API
+  aerisAQISetup();
+  aerisAQIGetResults();
+  aerisAQIPrintResults();
+  aerisAQIPublishResults();
+
+  // openweathermap Weather AQI API
+  openweathermapAQISetup();
+  openweathermapAQIGetResults();
+  openweathermapAQIPrintResults();
+  openweathermapAQIPublishResults();
 
   if (STATION_ID == "blitz")
   {

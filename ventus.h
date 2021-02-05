@@ -28,6 +28,8 @@
 #define WITH_DEEPSLEEP 1      // 0 to disable Deepsleep and enable delay function
 #define WITH_TIMER 0          // 0 to disable Timer Routines
 #define WITH_BROKER 1         // 0 to disable publish to broker
+#define WITH_AERIS_AQI 0      // 0 to disable Aeris AQI API Request
+#define WITH_OWM_AQI 0        // 0 to disable Openweathermap AQI API Request
 
 // Station IP Address
 IPAddress ip(192, 168, 0, 171);
@@ -42,25 +44,35 @@ IPAddress ip(192, 168, 0, 171);
 #endif
   
 // Weatherunderground Protokoll to WeeWX
-#define WEEWX_SERVER "192.168.0.187"
-#define WEEWX_ID "VENTUS"
-#define WEEWX_PASSWORD "geheim"
+#if (WITH_WEEWX_UPLOAD > 0)
+  #define WEEWX_SERVER "192.168.0.187"
+  #define WEEWX_ID "VENTUS"
+  #define WEEWX_PASSWORD "xxx"
+#endif
 
 // Voltage divider R1 = 220k+100k+220k =540k and R2=100k
-#define VOLTAGE_CALIB_FACTOR 5.20 // change this value to calibrate the battery voltage
+#if (WITH_VOLTAGE > 0)
+  #define VOLTAGE_CALIB_FACTOR 5.20 // change this value to calibrate the battery voltage
+#endif
 
 // BME280 offsets
-#define BME280_TEMPERATURE_OFFSET 0.0
-#define BME280_PRESSURE_OFFSET 0.0
-#define BME280_HUMIDITY_OFFSET 0.0
+#if (WITH_BME280 > 0)
+  #define BME280_TEMPERATURE_OFFSET 0.0
+  #define BME280_PRESSURE_OFFSET 0.0
+  #define BME280_HUMIDITY_OFFSET 0.0
+#endif
 
 // BME680 offsets
-#define BME680_TEMPERATURE_OFFSET 0.0
-#define BME680_PRESSURE_OFFSET 0.0
-#define BME680_HUMIDITY_OFFSET 0.0
+#if (WITH_BME680 > 0)
+  #define BME680_TEMPERATURE_OFFSET 0.0
+  #define BME680_PRESSURE_OFFSET 0.0
+  #define BME680_HUMIDITY_OFFSET 0.0
+#endif
 
 // W132 offsets
-#define W132_WINDDIR_OFFSET 0
+#if (WITH_W132 > 0)
+  #define W132_WINDDIR_OFFSET 0
+#endif
 
 // Sleep time
 #if (WITH_W132 > 0)
